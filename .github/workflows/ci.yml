@@ -25,3 +25,61 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  pack:
+    name: Pack contract (eve ${{ matrix.eve }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both ends of the declared peer range, resolved from npm exactly as a
+        # consumer would get them. `verify` proves structural compatibility;
+        # this proves the *runtime* import works, which is a separate claim --
+        # dist/backend.js imports a value from eve/sandbox
+        # (SandboxTemplateNotProvisionedError), so a peer that typechecks could
+        # still fail to load.
+        eve: ["0.27.13", "latest"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Pack
+        run: pnpm pack --pack-destination /tmp/eve-sandbox-aliyun-pack
+
+      # The smoke test is a file, not `node -e`: eve's package internals call
+      # createRequire() during module init, which throws on the `[eval]`
+      # pseudo-filename `node -e` supplies.
+      - name: Install the tarball into a clean project and import it
+        run: |
+          mkdir -p /tmp/pack-smoke && cd /tmp/pack-smoke
+          npm init -y >/dev/null
+          npm pkg set type=module >/dev/null
+          npm install --no-audit --no-fund "eve@${{ matrix.eve }}" ai zod /tmp/eve-sandbox-aliyun-pack/jinshuju-eve-sandbox-aliyun-*.tgz
+          node -p "'resolved eve: ' + require('./node_modules/eve/package.json').version"
+          cat > smoke.mjs <<'SMOKE'
+          import { createRequire } from "node:module";
+          import { aliyun, createAliyunSandboxBackend, translateNetworkPolicy } from "@jinshuju/eve-sandbox-aliyun";
+
+          if (typeof aliyun !== "function") throw new Error("aliyun export missing");
+          if (typeof createAliyunSandboxBackend !== "function") throw new Error("createAliyunSandboxBackend export missing");
+          if (typeof translateNetworkPolicy !== "function") throw new Error("translateNetworkPolicy export missing");
+          if (aliyun({ connectionEnv: {} }).name !== "aliyun") throw new Error("backend name changed");
+
+          // The lockfile pins e2b for this repo, but a consumer resolves the
+          // published range. Anything newer than 2.31.0 creates sandboxes via
+          // POST /v2/sandboxes, which Aliyun answers with 405 -- so this is the
+          // check that the package can create a sandbox at all once installed.
+          // It has to run against the packed tarball: this exact mistake once
+          // passed every test in this repo and was caught only by hand.
+          const requireFromPackage = createRequire(import.meta.resolve("@jinshuju/eve-sandbox-aliyun"));
+          const e2b = requireFromPackage("e2b/package.json").version;
+          if (e2b !== "2.31.0") throw new Error(`consumers would resolve e2b@${e2b}, not 2.31.0`);
+
+          console.log(`pack import ok (e2b ${e2b})`);
+          SMOKE
+          node smoke.mjs
