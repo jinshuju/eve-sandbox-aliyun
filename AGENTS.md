@@ -83,6 +83,8 @@ devDependency together; a test asserts they name the same minor line.
   `src/integration/aliyun-backend-smoke.ts`.
 - `src/testing/` is excluded from the published build. Keep test-only code there.
 - Never commit secrets. `.env*` is ignored; `.env.example` holds names only.
+  This repository is public, history included: a secret that reaches any pushed
+  commit is leaked even if a later commit removes it, and must be rotated.
 
 ## Verification
 
@@ -108,9 +110,10 @@ Only `feat`, `fix`, `perf` and `revert` commits produce a release; `docs`, `ci`,
 `npm run build`, not `pnpm build`, because `npm publish` is what triggers it.
 
 Publishing uses **npm trusted publishing (OIDC)**. There is no `NPM_TOKEN`
-anywhere and there should never be one. Do not add `--provenance` — that flag is
-for token-based publishing. npm attaches provenance on its own only for public
-source repositories; this one is private, so releases carry no attestation.
+anywhere and there should never be one: the `id-token: write` permission lets
+npm verify the workflow's identity directly, and because this repository and the
+package are both public, npm attaches a provenance attestation on its own. Do
+not add `--provenance` — that flag is for token-based publishing.
 
 Trusted publishing cannot cover the _first_ publish of a name, so 0.1.0 was
 published by hand and the trusted publisher was configured afterwards against
