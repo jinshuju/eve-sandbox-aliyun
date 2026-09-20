@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { SandboxBackend, SandboxSeedFile, SandboxSession } from "eve/sandbox";
+import type {
+  SandboxBackend,
+  SandboxNetworkPolicy,
+  SandboxSeedFile,
+  SandboxSession,
+} from "eve/sandbox";
 import { SandboxTemplateNotProvisionedError } from "eve/sandbox";
 import {
   ARCHIVE_PATH,
@@ -11,10 +16,11 @@ import {
   buildRestoreScript,
   PROBE_USER_SCRIPT,
 } from "./archive.js";
-import type { AliyunSandboxCreateOptions } from "./options.js";
+import type { AliyunSandboxCreateOptions, AliyunSandboxUseOptions } from "./options.js";
 import {
   resolveAliyunSandboxOptions,
   resolveCacheRoot,
+  resolveSessionCheckpointPath,
   resolveTemplateArchivePath,
 } from "./options.js";
 import { resolveSeedPath } from "./paths.js";
@@ -43,7 +49,9 @@ interface SandboxUser {
   readonly name: string;
 }
 
-export function createAliyunSandboxBackend(input: CreateAliyunSandboxBackendInput): SandboxBackend {
+export function createAliyunSandboxBackend(
+  input: CreateAliyunSandboxBackendInput,
+): SandboxBackend<AliyunSandboxUseOptions, AliyunSandboxUseOptions> {
   const options = resolveAliyunSandboxOptions(input.createOptions);
   const { provider } = input;
 
@@ -111,8 +119,39 @@ export function createAliyunSandboxBackend(input: CreateAliyunSandboxBackendInpu
       env: options.env,
       timeoutMs: options.timeoutMs,
     });
-    const session = buildPublicSession(internal, async () => {});
+    const session = buildPublicSession(internal, setNetworkPolicy);
     return { internal, session };
+  }
+
+  /**
+   * The provider decides internet access when it creates a sandbox and offers
+   * no way to change it afterwards, so only a no-op "change" can succeed.
+   */
+  async function setNetworkPolicy(policy: SandboxNetworkPolicy): Promise<void> {
+    if (policy === options.networkPolicy) return;
+    throw new Error(
+      `aliyun sandbox: the network policy is fixed when the sandbox is created ` +
+        `(currently "${options.networkPolicy}"). Set networkPolicy on the aliyun() backend ` +
+        `factory; only "allow-all" and "deny-all" are supported.`,
+    );
+  }
+
+  async function useSession(
+    session: SandboxSession,
+    useOptions?: AliyunSandboxUseOptions,
+  ): Promise<SandboxSession> {
+    if (useOptions?.networkPolicy !== undefined) await setNetworkPolicy(useOptions.networkPolicy);
+    return session;
+  }
+
+  function createSandbox(metadata: Record<string, string>): Promise<ProviderSandbox> {
+    return provider.create({
+      template: options.template,
+      timeoutMs: options.timeoutMs,
+      envs: options.env,
+      metadata,
+      allowInternetAccess: options.networkPolicy === "allow-all",
+    });
   }
 
   async function writeSeedFiles(
@@ -155,19 +194,14 @@ export function createAliyunSandboxBackend(input: CreateAliyunSandboxBackendInpu
       if (existsSync(archivePath)) return { reused: true };
 
       log?.(`aliyun: building template ${templateKey} on ${options.template}`);
-      const sandbox = await provider.create({
-        template: options.template,
-        timeoutMs: options.timeoutMs,
-        envs: options.env,
-        metadata: { eveTemplateKey: templateKey },
-      });
+      const sandbox = await createSandbox({ eveTemplateKey: templateKey });
       try {
         const user = await prepareBaseRuntime(sandbox);
         const { session } = openSession(templateKey, sandbox);
         await writeSeedFiles(session, seedFiles, user);
         if (bootstrap) {
           log?.("aliyun: running sandbox bootstrap");
-          await bootstrap({ use: async () => session });
+          await bootstrap({ use: async (useOptions) => await useSession(session, useOptions) });
         }
         log?.("aliyun: capturing template archive");
         await captureArchive(sandbox, archivePath);
@@ -179,22 +213,21 @@ export function createAliyunSandboxBackend(input: CreateAliyunSandboxBackendInpu
 
     async create({ templateKey, sessionKey, existingMetadata, tags, runtimeContext }) {
       const cacheRoot = resolveCacheRoot(runtimeContext.appRoot, options.cacheDir);
+      const checkpointPath = resolveSessionCheckpointPath(cacheRoot, sessionKey);
       let sandbox = await reattach(sessionKey, existingMetadata);
       if (sandbox === null) {
-        const archivePath =
-          templateKey === null ? null : resolveTemplateArchivePath(cacheRoot, templateKey, options);
-        if (templateKey !== null && (archivePath === null || !existsSync(archivePath))) {
-          throw new SandboxTemplateNotProvisionedError({
-            backendName: ALIYUN_BACKEND_NAME,
-            templateKey,
-          });
+        // A checkpoint already contains the template it grew from, so it wins.
+        let archivePath: string | null = existsSync(checkpointPath) ? checkpointPath : null;
+        if (archivePath === null && templateKey !== null) {
+          archivePath = resolveTemplateArchivePath(cacheRoot, templateKey, options);
+          if (!existsSync(archivePath)) {
+            throw new SandboxTemplateNotProvisionedError({
+              backendName: ALIYUN_BACKEND_NAME,
+              templateKey,
+            });
+          }
         }
-        sandbox = await provider.create({
-          template: options.template,
-          timeoutMs: options.timeoutMs,
-          envs: options.env,
-          metadata: { ...tags, [SESSION_KEY_METADATA]: sessionKey },
-        });
+        sandbox = await createSandbox({ ...tags, [SESSION_KEY_METADATA]: sessionKey });
         try {
           await prepareBaseRuntime(sandbox);
           if (archivePath !== null) await restoreArchive(sandbox, archivePath);
@@ -206,9 +239,25 @@ export function createAliyunSandboxBackend(input: CreateAliyunSandboxBackendInpu
 
       const live = sandbox;
       const { internal, session } = openSession(sessionKey, live);
+      let released: Promise<void> | undefined;
+      const releaseCompute = () =>
+        (released ??= (async () => {
+          await internal.killAll();
+          try {
+            await live.pause();
+            return;
+          } catch {
+            // Pause is an allow-listed account feature; fall through to a checkpoint.
+          }
+          await captureArchive(live, checkpointPath);
+          await live.kill();
+        })().catch((error: unknown) => {
+          released = undefined;
+          throw error;
+        }));
       return {
         session,
-        useSessionFn: async () => session,
+        useSessionFn: async (useOptions) => await useSession(session, useOptions),
         async captureState() {
           return {
             backendName: ALIYUN_BACKEND_NAME,
@@ -216,15 +265,23 @@ export function createAliyunSandboxBackend(input: CreateAliyunSandboxBackendInpu
             sessionKey,
           };
         },
+        // Stop the compute, keep the session. Accounts with the provider's
+        // pause feature keep everything (memory included) provider-side and
+        // resume on reconnect. Without it the provider can only destroy a
+        // sandbox, so the session's filesystem delta is checkpointed locally
+        // first and the next create() restores it into a fresh sandbox.
         async stop() {
-          await internal.killAll();
+          await releaseCompute();
         },
+        // Server teardown: eve collects failures itself and must not be blocked.
         async shutdown() {
-          await internal.killAll();
+          await releaseCompute().catch(() => {});
         },
-        async delete() {
+        async delete(deleteOptions) {
+          deleteOptions?.abortSignal?.throwIfAborted();
           await internal.killAll();
           await live.kill();
+          await rm(checkpointPath, { force: true });
         },
       };
     },

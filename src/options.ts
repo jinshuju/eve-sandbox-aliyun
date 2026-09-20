@@ -14,6 +14,18 @@ export interface AliyunSandboxCreateOptions {
   readonly timeoutMs?: number;
   /** Absolute directory for template archives and session checkpoints. */
   readonly cacheDir?: string;
+  /**
+   * `"allow-all"` (default) or `"deny-all"`. The provider fixes internet access
+   * when a sandbox is created, so this cannot change on a live sandbox.
+   */
+  readonly networkPolicy?: AliyunNetworkPolicy;
+}
+
+export type AliyunNetworkPolicy = "allow-all" | "deny-all";
+
+/** Options accepted by `use()` in `bootstrap` and `onSession`. */
+export interface AliyunSandboxUseOptions {
+  readonly networkPolicy?: AliyunNetworkPolicy;
 }
 
 export interface ResolvedAliyunSandboxOptions {
@@ -21,6 +33,7 @@ export interface ResolvedAliyunSandboxOptions {
   readonly env: Readonly<Record<string, string>>;
   readonly timeoutMs: number;
   readonly cacheDir: string | null;
+  readonly networkPolicy: AliyunNetworkPolicy;
 }
 
 export function resolveAliyunSandboxOptions(
@@ -31,6 +44,7 @@ export function resolveAliyunSandboxOptions(
     env: { ...options.env },
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     cacheDir: options.cacheDir ?? null,
+    networkPolicy: options.networkPolicy ?? "allow-all",
   };
 }
 

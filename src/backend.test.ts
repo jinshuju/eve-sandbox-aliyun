@@ -223,3 +223,162 @@ describe("create", () => {
     expect(await second.session.readTextFile({ path: "seed.txt" })).toBe("from template");
   });
 });
+
+describe("handle lifecycle", () => {
+  test("stop pauses the sandbox where the account supports it, and the session resumes intact", async () => {
+    const { provider, backend } = setup();
+    provider.pauseSupported = true;
+    const first = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+    await first.session.writeTextFile({ path: "work.txt", content: "in progress" });
+
+    await first.stop();
+
+    const sandbox = provider.created[0];
+    expect(sandbox?.paused).toBe(true);
+    expect(sandbox?.killed).toBe(false);
+    const second = await backend.create({
+      templateKey: null,
+      sessionKey: "s-1",
+      runtimeContext,
+      existingMetadata: (await first.captureState()).metadata,
+    });
+    expect(provider.created).toHaveLength(1);
+    expect(await second.session.readTextFile({ path: "work.txt" })).toBe("in progress");
+  });
+
+  test("stop without pause support checkpoints the session and releases the compute", async () => {
+    const { provider, backend } = setup();
+    const first = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+    await first.session.writeTextFile({ path: "work.txt", content: "in progress" });
+
+    await first.stop();
+
+    expect(provider.created[0]?.killed).toBe(true);
+    expect(provider.sandboxes.size).toBe(0);
+    const second = await backend.create({
+      templateKey: null,
+      sessionKey: "s-1",
+      runtimeContext,
+      existingMetadata: (await first.captureState()).metadata,
+    });
+    expect(provider.created).toHaveLength(2);
+    expect(await second.session.readTextFile({ path: "work.txt" })).toBe("in progress");
+  });
+
+  test("stop kills running processes before releasing the sandbox", async () => {
+    const shell = createFakeLinuxShell({
+      onCommand: (command) => (command.command === "serve" ? { hang: true } : undefined),
+    });
+    const { backend } = setup(shell);
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+    const server = await handle.session.spawn({ command: "serve" });
+
+    await handle.stop();
+
+    expect(await server.wait()).toEqual({ exitCode: 137 });
+  });
+
+  test("stop rejects when the checkpoint cannot be captured, leaving the sandbox alive", async () => {
+    let failCapture = false;
+    const shell = createFakeLinuxShell({
+      onCommand: (command) =>
+        failCapture && command.command.includes("-czpf")
+          ? { exitCode: 2, stderr: "tar: disk full\n" }
+          : undefined,
+    });
+    const { provider, backend } = setup(shell);
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+    failCapture = true;
+
+    await expect(handle.stop()).rejects.toThrow("disk full");
+    expect(provider.created[0]?.killed).toBe(false);
+  });
+
+  test("shutdown never throws, even when the provider fails", async () => {
+    const { provider, backend } = setup();
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+    const sandbox = provider.created[0];
+    if (sandbox) sandbox.startCommand = async () => Promise.reject(new Error("provider down"));
+
+    await expect(handle.shutdown()).resolves.toBeUndefined();
+  });
+
+  test("delete destroys the sandbox and its checkpoint, so the next session starts from the template", async () => {
+    const { provider, backend } = setup();
+    await backend.prewarm({
+      templateKey: "tpl-1",
+      runtimeContext,
+      seedFiles: [{ path: "seed.txt", content: "from template" }],
+    });
+    const first = await backend.create({ templateKey: "tpl-1", sessionKey: "s-1", runtimeContext });
+    await first.session.writeTextFile({ path: "work.txt", content: "in progress" });
+    await first.stop();
+    const resumed = await backend.create({
+      templateKey: "tpl-1",
+      sessionKey: "s-1",
+      runtimeContext,
+    });
+
+    await resumed.delete();
+
+    expect(provider.sandboxes.size).toBe(0);
+    expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
+    const fresh = await backend.create({ templateKey: "tpl-1", sessionKey: "s-1", runtimeContext });
+    expect(await fresh.session.readTextFile({ path: "work.txt" })).toBeNull();
+    expect(await fresh.session.readTextFile({ path: "seed.txt" })).toBe("from template");
+  });
+
+  test("delete honours an already aborted signal", async () => {
+    const { provider, backend } = setup();
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+    const abort = new AbortController();
+    abort.abort(new Error("cancelled"));
+
+    await expect(handle.delete({ abortSignal: abort.signal })).rejects.toThrow("cancelled");
+    expect(provider.created[0]?.killed).toBe(false);
+  });
+});
+
+describe("network policy", () => {
+  test("deny-all creates sandboxes without internet access", async () => {
+    const { provider, backend } = setup(undefined, { networkPolicy: "deny-all" });
+
+    await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+
+    expect(provider.created[0]?.createOptions.allowInternetAccess).toBe(false);
+  });
+
+  test("allow-all is the default", async () => {
+    const { provider, backend } = setup();
+
+    await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+
+    expect(provider.created[0]?.createOptions.allowInternetAccess).toBe(true);
+  });
+
+  test("setNetworkPolicy accepts the policy the sandbox was created with", async () => {
+    const { backend } = setup(undefined, { networkPolicy: "deny-all" });
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+
+    await expect(handle.session.setNetworkPolicy("deny-all")).resolves.toBeUndefined();
+  });
+
+  test("setNetworkPolicy rejects a change the provider cannot apply to a live sandbox", async () => {
+    const { backend } = setup();
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+
+    await expect(handle.session.setNetworkPolicy("deny-all")).rejects.toThrow(
+      /fixed when the sandbox is created/,
+    );
+  });
+
+  test("onSession's use() applies the same rule", async () => {
+    const { backend } = setup();
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+
+    await expect(handle.useSessionFn({ networkPolicy: "deny-all" })).rejects.toThrow(
+      /fixed when the sandbox is created/,
+    );
+    await expect(handle.useSessionFn()).resolves.toBe(handle.session);
+  });
+});
