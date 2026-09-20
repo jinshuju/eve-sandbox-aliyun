@@ -95,9 +95,33 @@ describe("createE2bProvider", () => {
         timeoutMs: 5000,
         envs: { A: "1" },
         metadata: { k: "v" },
-        network: { allowOut: ["a.example.com"], denyOut: ["0.0.0.0/0"], rules: {} },
+        network: { allowOut: ["a.example.com"], denyOut: ["0.0.0.0/0"] },
       },
     ]);
+  });
+
+  test("create omits an unrestricted network block, which the provider rejects as empty", async () => {
+    const { sdk, calls } = fakeSdk();
+
+    await createE2bProvider({ connection, sdk }).create({
+      template: "t",
+      timeoutMs: 1,
+      network: { allowOut: [], denyOut: [], rules: {} },
+    });
+
+    expect(calls[0]?.[2]).not.toHaveProperty("network");
+  });
+
+  test("create sends only the populated network fields", async () => {
+    const { sdk, calls } = fakeSdk();
+
+    await createE2bProvider({ connection, sdk }).create({
+      template: "t",
+      timeoutMs: 1,
+      network: { allowOut: [], denyOut: ["0.0.0.0/0"], rules: {} },
+    });
+
+    expect((calls[0]?.[2] as { network: unknown }).network).toEqual({ denyOut: ["0.0.0.0/0"] });
   });
 
   test("startCommand runs in the background with the provider's command timeout disabled", async () => {

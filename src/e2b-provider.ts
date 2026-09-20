@@ -3,6 +3,7 @@ import type {
   Provider,
   ProviderCommand,
   ProviderCreateOptions,
+  ProviderNetworkConfig,
   ProviderSandbox,
 } from "./provider.js";
 
@@ -39,6 +40,21 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   return copy.buffer;
+}
+
+/**
+ * At create time the provider rejects a network block that is present but
+ * empty, and an unrestricted sandbox is simply one without the block. (The
+ * update endpoint is the opposite: empty fields are how restrictions clear.)
+ */
+function populatedNetwork(network: ProviderNetworkConfig | undefined) {
+  if (network === undefined) return undefined;
+  const populated = {
+    ...(network.allowOut.length > 0 ? { allowOut: network.allowOut } : {}),
+    ...(network.denyOut.length > 0 ? { denyOut: network.denyOut } : {}),
+    ...(Object.keys(network.rules).length > 0 ? { rules: network.rules } : {}),
+  };
+  return Object.keys(populated).length > 0 ? populated : undefined;
 }
 
 function wrapSandbox(sandbox: Sandbox): ProviderSandbox {
@@ -117,11 +133,13 @@ export function createE2bProvider(input: CreateE2bProviderInput): Provider {
   const { connection } = input;
   return {
     async create(options: ProviderCreateOptions) {
-      const { template, ...createOptions } = options;
+      const { template, network, ...createOptions } = options;
+      const populated = populatedNetwork(network);
       return wrapSandbox(
         await sdk.create(template, {
           ...connection,
           ...createOptions,
+          ...(populated === undefined ? {} : { network: populated }),
           envs: createOptions.envs === undefined ? undefined : { ...createOptions.envs },
           metadata:
             createOptions.metadata === undefined ? undefined : { ...createOptions.metadata },
