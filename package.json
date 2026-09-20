@@ -1,5 +1,5 @@
 {
-  "name": "eve-aliyun-sandbox",
+  "name": "@jinshuju/eve-sandbox-aliyun",
   "version": "0.0.0",
   "description": "Aliyun cloud sandbox (FC Agent Sandbox) SandboxBackend for eve agents",
   "keywords": [
@@ -11,7 +11,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jinshuju/eve-aliyun-sandbox.git"
+    "url": "git+https://github.com/jinshuju/eve-sandbox-aliyun.git"
   },
   "files": [
     "dist",
@@ -24,6 +24,9 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

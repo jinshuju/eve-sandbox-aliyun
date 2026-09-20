@@ -1,5 +1,5 @@
 {
-  "name": "eve-aliyun-sandbox-example",
+  "name": "eve-sandbox-aliyun-example",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^3.0.49",
+    "@jinshuju/eve-sandbox-aliyun": "link:../..",
     "ai": "^7.0.44",
     "eve": "0.63.0",
-    "eve-aliyun-sandbox": "link:../..",
     "zod": "^4.1.8"
   },
   "engines": {
