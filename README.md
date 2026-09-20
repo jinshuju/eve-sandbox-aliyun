@@ -1,4 +1,4 @@
-# eve-aliyun-sandbox
+# @jinshuju/eve-sandbox-aliyun
 
 An [Aliyun cloud sandbox](https://help.aliyun.com/zh/functioncompute/sandbox-function/)
 (FC Agent Sandbox) `SandboxBackend` for [eve](https://eve.dev) agents. It gives agent-executed
@@ -8,13 +8,13 @@ credential brokering — with nothing to run on the host but Node.
 ## Usage
 
 ```bash
-npm install eve-aliyun-sandbox
+npm install @jinshuju/eve-sandbox-aliyun
 ```
 
 ```ts
 // agent/sandbox.ts
 import { defineSandbox } from "eve/sandbox";
-import { aliyun } from "eve-aliyun-sandbox";
+import { aliyun } from "@jinshuju/eve-sandbox-aliyun";
 
 export default defineSandbox({
   backend: aliyun(),

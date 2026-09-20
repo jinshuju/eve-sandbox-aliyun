@@ -1,5 +1,5 @@
 import { defineSandbox } from "eve/sandbox";
-import { aliyun } from "eve-aliyun-sandbox";
+import { aliyun } from "@jinshuju/eve-sandbox-aliyun";
 
 export default defineSandbox({
   // Reads E2B_API_KEY / E2B_API_URL / E2B_DOMAIN. Sandboxes idle out after 10 minutes.

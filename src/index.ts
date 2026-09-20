@@ -39,7 +39,7 @@ export interface AliyunSandboxOptions extends AliyunSandboxCreateOptions, Aliyun
  * ```ts
  * // agent/sandbox.ts
  * import { defineSandbox } from "eve/sandbox";
- * import { aliyun } from "eve-aliyun-sandbox";
+ * import { aliyun } from "@jinshuju/eve-sandbox-aliyun";
  *
  * export default defineSandbox({ backend: aliyun() });
  * ```
