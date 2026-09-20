@@ -4,5 +4,5 @@
     "declaration": true,
     "types": ["node"]
   },
-  "exclude": ["src/**/*.test.ts", "src/integration"]
+  "exclude": ["src/**/*.test.ts", "src/integration", "src/testing"]
 }

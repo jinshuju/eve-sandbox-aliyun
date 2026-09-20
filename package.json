@@ -1,6 +1,6 @@
 {
   "name": "@jinshuju/eve-sandbox-aliyun",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Aliyun cloud sandbox (FC Agent Sandbox) SandboxBackend for eve agents",
   "keywords": [
     "agent",
@@ -29,7 +29,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "smoke": "tsx --env-file=.env.local src/integration/aliyun-backend-smoke.ts",
@@ -40,7 +40,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "e2b": "^2.31.0"
+    "e2b": "2.31.0"
   },
   "devDependencies": {
     "@types/node": "^26.0.1",
