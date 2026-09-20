@@ -172,6 +172,21 @@ its sandbox: after `eve invoke` returns, the sandbox idles until `timeoutMs` ela
 `timeoutMs` as low as your turn cadence allows, and call `ctx.getSandbox().stop()` (or
 `.delete()`) when a task is finished.
 
+`pnpm sweep` lists what is still running in the account. With `--kill` it destroys the provably
+disposable sandboxes — smoke runs and template builds — and, with `--tag agent=<name>`, the ones
+carrying that eve tag. Session sandboxes are never touched unless a `--tag` names them.
+
+## Troubleshooting
+
+| Symptom                                            | Likely cause                                                                                                                              |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `405` when creating a sandbox                      | A newer `e2b` was hoisted over this package's pin. It must resolve to exactly `2.31.0`.                                                   |
+| Requests go to e2b.dev, or `missing an endpoint`   | `E2B_DOMAIN` (or `region`) is not set. There is no default endpoint on purpose.                                                           |
+| `SandboxTemplateNotProvisionedError` in production | `cacheDir` did not travel with the build. Ship it, or point build and runtime at shared storage.                                          |
+| `bootstrap` cannot reach the network               | The factory's `networkPolicy` governs `bootstrap` too. Allow the package mirrors there and tighten per session in `onSession`.            |
+| `500` from a sandbox object right after pausing it | A paused sandbox's old handle is dead; reconnect by id. This backend always does — it only bites code that drives the `e2b` SDK directly. |
+| Sandboxes pile up                                  | `timeoutMs` is a backstop, not collection. Call `stop()`/`delete()` when work ends, and check with `pnpm sweep`.                          |
+
 ## eve version requirement
 
 `eve` `>=0.27.0 <1.0.0`. The range is wide on purpose — the consumed surface is one small
@@ -182,6 +197,7 @@ floor and the newest verified release, so `pnpm typecheck` is part of the contra
 
 - `pnpm test` — unit tests. The cloud sits behind a small `Provider` interface with an in-memory
   fake, so they run anywhere and create nothing.
+- `pnpm sweep` — lists live sandboxes in the account; see [Cost](#cost).
 - `pnpm smoke` — the contract test against the **real** service, using `.env.local`. It creates
   billable sandboxes, destroys every one in `finally`, and ends by reporting how many remain in
   the account. Prints `ALIYUN SMOKE OK`. Run it before changing `src/e2b-provider.ts`,
