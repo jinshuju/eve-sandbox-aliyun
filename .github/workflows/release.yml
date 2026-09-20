@@ -60,10 +60,10 @@ jobs:
     permissions:
       contents: read
       # What lets npm verify this workflow's identity over OIDC, so no
-      # long-lived token is involved. Do not add --provenance: that flag is for
-      # token-based publishing. (npm attaches provenance on its own only when
-      # the source repository is public; this one is private, so releases
-      # publish without an attestation until that changes.)
+      # long-lived token is involved. It also makes npm attach a provenance
+      # attestation on its own -- this repo and package are both public, which
+      # is the condition for that. Do not add --provenance; that flag is for
+      # token-based publishing and conflicts with this.
       id-token: write
     steps:
       - uses: actions/checkout@v4

@@ -9,6 +9,10 @@
     "eve",
     "sandbox"
   ],
+  "homepage": "https://github.com/jinshuju/eve-sandbox-aliyun#readme",
+  "bugs": {
+    "url": "https://github.com/jinshuju/eve-sandbox-aliyun/issues"
+  },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
