@@ -173,3 +173,7 @@ floor and the newest verified release, so `pnpm typecheck` is part of the contra
 ```bash
 pnpm lint && pnpm fmt:check && pnpm typecheck && pnpm test && pnpm build
 ```
+
+## License
+
+Apache-2.0. See [LICENSE](./LICENSE).
