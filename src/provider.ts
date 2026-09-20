@@ -60,3 +60,13 @@ export interface Provider {
   /** Ids of live sandboxes whose metadata contains every given pair. */
   findByMetadata(metadata: Readonly<Record<string, string>>): Promise<string[]>;
 }
+
+/** Complete egress configuration; the provider replaces the previous one wholesale. */
+export interface ProviderNetworkConfig {
+  /** Domains (wildcards allowed), IPs, or CIDRs. Takes precedence over `denyOut`. */
+  readonly allowOut: string[];
+  /** IPs or CIDRs. */
+  readonly denyOut: string[];
+  /** Header injection per exact domain, applied at the provider's egress proxy. */
+  readonly rules: Record<string, Array<{ transform: { headers: Record<string, string> } }>>;
+}
