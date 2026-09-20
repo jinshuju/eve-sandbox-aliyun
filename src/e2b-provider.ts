@@ -93,6 +93,10 @@ function wrapSandbox(sandbox: Sandbox): ProviderSandbox {
       await sandbox.setTimeout(timeoutMs);
     },
 
+    async updateNetwork(network) {
+      await sandbox.updateNetwork(network);
+    },
+
     async pause() {
       await sandbox.pause();
     },

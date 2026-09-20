@@ -3,6 +3,7 @@ import type {
   ProviderCommand,
   ProviderCommandCallbacks,
   ProviderCreateOptions,
+  ProviderNetworkConfig,
   ProviderSandbox,
   ProviderStartCommandOptions,
 } from "../provider.js";
@@ -28,13 +29,20 @@ export class FakeSandbox implements ProviderSandbox {
   liveCommands = 0;
   killed = false;
   paused = false;
+  network: ProviderNetworkConfig;
 
   constructor(
     readonly id: string,
     readonly createOptions: ProviderCreateOptions,
     private readonly shell: FakeShell,
     private readonly provider: FakeProvider,
-  ) {}
+  ) {
+    this.network = createOptions.network ?? { allowOut: [], denyOut: [], rules: {} };
+  }
+
+  async updateNetwork(network: ProviderNetworkConfig): Promise<void> {
+    this.network = network;
+  }
 
   async startCommand(
     options: ProviderStartCommandOptions,

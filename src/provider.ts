@@ -39,6 +39,8 @@ export interface ProviderSandbox {
   writeFile(path: string, content: Uint8Array, user?: string): Promise<void>;
   /** Resets the sandbox's remaining lifetime to `timeoutMs` from now. */
   setTimeout(timeoutMs: number): Promise<void>;
+  /** Replaces the sandbox's egress configuration; takes effect once resolved. */
+  updateNetwork(network: ProviderNetworkConfig): Promise<void>;
   /** Suspends the sandbox, preserving its state. Rejects where the account lacks the feature. */
   pause(): Promise<void>;
   /** Destroys the sandbox. Succeeds when it is already gone. */
@@ -50,7 +52,8 @@ export interface ProviderCreateOptions {
   readonly timeoutMs: number;
   readonly envs?: Readonly<Record<string, string>>;
   readonly metadata?: Readonly<Record<string, string>>;
-  readonly allowInternetAccess?: boolean;
+  /** Egress configuration in force from the moment the sandbox starts. */
+  readonly network?: ProviderNetworkConfig;
 }
 
 export interface Provider {

@@ -83,7 +83,7 @@ describe("createE2bProvider", () => {
       timeoutMs: 5000,
       envs: { A: "1" },
       metadata: { k: "v" },
-      allowInternetAccess: false,
+      network: { allowOut: ["a.example.com"], denyOut: ["0.0.0.0/0"], rules: {} },
     });
 
     expect(sandbox.id).toBe("sbx-1");
@@ -95,7 +95,7 @@ describe("createE2bProvider", () => {
         timeoutMs: 5000,
         envs: { A: "1" },
         metadata: { k: "v" },
-        allowInternetAccess: false,
+        network: { allowOut: ["a.example.com"], denyOut: ["0.0.0.0/0"], rules: {} },
       },
     ]);
   });

@@ -2,12 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type {
-  SandboxBackend,
-  SandboxNetworkPolicy,
-  SandboxSeedFile,
-  SandboxSession,
-} from "eve/sandbox";
+import type { SandboxBackend, SandboxSeedFile, SandboxSession } from "eve/sandbox";
 import { SandboxTemplateNotProvisionedError } from "eve/sandbox";
 import {
   ARCHIVE_PATH,
@@ -23,6 +18,7 @@ import {
   resolveSessionCheckpointPath,
   resolveTemplateArchivePath,
 } from "./options.js";
+import { translateNetworkPolicy } from "./network-policy.js";
 import { resolveSeedPath } from "./paths.js";
 import type { Provider, ProviderSandbox } from "./provider.js";
 import { buildPublicSession, streamToBytes } from "./public-session.js";
@@ -112,6 +108,9 @@ export function createAliyunSandboxBackend(
     await runScript(sandbox, buildRestoreScript(), "aliyun sandbox: failed to restore state", ROOT);
   }
 
+  // Validated up front so a policy the provider cannot express fails at startup.
+  const initialNetwork = translateNetworkPolicy(options.networkPolicy);
+
   function openSession(id: string, sandbox: ProviderSandbox) {
     const internal = createAliyunSession({
       id,
@@ -119,28 +118,19 @@ export function createAliyunSandboxBackend(
       env: options.env,
       timeoutMs: options.timeoutMs,
     });
-    const session = buildPublicSession(internal, setNetworkPolicy);
+    const session = buildPublicSession(internal, async (policy) => {
+      await sandbox.updateNetwork(translateNetworkPolicy(policy));
+    });
     return { internal, session };
-  }
-
-  /**
-   * The provider decides internet access when it creates a sandbox and offers
-   * no way to change it afterwards, so only a no-op "change" can succeed.
-   */
-  async function setNetworkPolicy(policy: SandboxNetworkPolicy): Promise<void> {
-    if (policy === options.networkPolicy) return;
-    throw new Error(
-      `aliyun sandbox: the network policy is fixed when the sandbox is created ` +
-        `(currently "${options.networkPolicy}"). Set networkPolicy on the aliyun() backend ` +
-        `factory; only "allow-all" and "deny-all" are supported.`,
-    );
   }
 
   async function useSession(
     session: SandboxSession,
     useOptions?: AliyunSandboxUseOptions,
   ): Promise<SandboxSession> {
-    if (useOptions?.networkPolicy !== undefined) await setNetworkPolicy(useOptions.networkPolicy);
+    if (useOptions?.networkPolicy !== undefined) {
+      await session.setNetworkPolicy(useOptions.networkPolicy);
+    }
     return session;
   }
 
@@ -150,7 +140,7 @@ export function createAliyunSandboxBackend(
       timeoutMs: options.timeoutMs,
       envs: options.env,
       metadata,
-      allowInternetAccess: options.networkPolicy === "allow-all",
+      network: initialNetwork,
     });
   }
 

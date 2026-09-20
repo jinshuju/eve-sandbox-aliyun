@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
+import type { SandboxNetworkPolicy } from "eve/sandbox";
 
 export const DEFAULT_TEMPLATE = "code-interpreter-v1";
 /** Same default lifetime as eve's Vercel backend. */
@@ -15,17 +16,16 @@ export interface AliyunSandboxCreateOptions {
   /** Absolute directory for template archives and session checkpoints. */
   readonly cacheDir?: string;
   /**
-   * `"allow-all"` (default) or `"deny-all"`. The provider fixes internet access
-   * when a sandbox is created, so this cannot change on a live sandbox.
+   * Egress policy every fresh sandbox starts with, bootstrap included. Defaults
+   * to `"allow-all"`. Override per session in `onSession`'s `use()`, or mid-turn
+   * with `sandbox.setNetworkPolicy()`.
    */
-  readonly networkPolicy?: AliyunNetworkPolicy;
+  readonly networkPolicy?: SandboxNetworkPolicy;
 }
-
-export type AliyunNetworkPolicy = "allow-all" | "deny-all";
 
 /** Options accepted by `use()` in `bootstrap` and `onSession`. */
 export interface AliyunSandboxUseOptions {
-  readonly networkPolicy?: AliyunNetworkPolicy;
+  readonly networkPolicy?: SandboxNetworkPolicy;
 }
 
 export interface ResolvedAliyunSandboxOptions {
@@ -33,7 +33,7 @@ export interface ResolvedAliyunSandboxOptions {
   readonly env: Readonly<Record<string, string>>;
   readonly timeoutMs: number;
   readonly cacheDir: string | null;
-  readonly networkPolicy: AliyunNetworkPolicy;
+  readonly networkPolicy: SandboxNetworkPolicy;
 }
 
 export function resolveAliyunSandboxOptions(

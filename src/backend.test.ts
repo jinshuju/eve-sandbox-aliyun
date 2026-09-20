@@ -340,12 +340,18 @@ describe("handle lifecycle", () => {
 });
 
 describe("network policy", () => {
-  test("deny-all creates sandboxes without internet access", async () => {
+  const ALL_TRAFFIC = "0.0.0.0/0";
+
+  test("sandboxes are created with the factory's policy already in force", async () => {
     const { provider, backend } = setup(undefined, { networkPolicy: "deny-all" });
 
     await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
 
-    expect(provider.created[0]?.createOptions.allowInternetAccess).toBe(false);
+    expect(provider.created[0]?.createOptions.network).toEqual({
+      allowOut: [],
+      denyOut: [ALL_TRAFFIC],
+      rules: {},
+    });
   });
 
   test("allow-all is the default", async () => {
@@ -353,32 +359,75 @@ describe("network policy", () => {
 
     await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
 
-    expect(provider.created[0]?.createOptions.allowInternetAccess).toBe(true);
+    expect(provider.created[0]?.createOptions.network).toEqual({
+      allowOut: [],
+      denyOut: [],
+      rules: {},
+    });
   });
 
-  test("setNetworkPolicy accepts the policy the sandbox was created with", async () => {
-    const { backend } = setup(undefined, { networkPolicy: "deny-all" });
-    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+  test("the factory's policy governs bootstrap too", async () => {
+    const { provider, backend } = setup(undefined, {
+      networkPolicy: { allow: ["deb.debian.org"] },
+    });
 
-    await expect(handle.session.setNetworkPolicy("deny-all")).resolves.toBeUndefined();
+    await backend.prewarm({ templateKey: "tpl-1", runtimeContext, seedFiles: [] });
+
+    expect(provider.created[0]?.createOptions.network?.allowOut).toEqual(["deb.debian.org"]);
   });
 
-  test("setNetworkPolicy rejects a change the provider cannot apply to a live sandbox", async () => {
-    const { backend } = setup();
+  test("setNetworkPolicy changes egress on the live sandbox", async () => {
+    const { provider, backend } = setup();
     const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
 
-    await expect(handle.session.setNetworkPolicy("deny-all")).rejects.toThrow(
-      /fixed when the sandbox is created/,
-    );
+    await handle.session.setNetworkPolicy({
+      allow: {
+        "github.com": [{ transform: [{ headers: { authorization: "Basic abc" } }] }],
+      },
+    });
+
+    expect(provider.created[0]?.network).toEqual({
+      allowOut: ["github.com"],
+      denyOut: [ALL_TRAFFIC],
+      rules: { "github.com": [{ transform: { headers: { authorization: "Basic abc" } } }] },
+    });
   });
 
-  test("onSession's use() applies the same rule", async () => {
-    const { backend } = setup();
+  test("setNetworkPolicy rejects a policy the provider cannot express, leaving egress unchanged", async () => {
+    const { provider, backend } = setup();
     const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
 
-    await expect(handle.useSessionFn({ networkPolicy: "deny-all" })).rejects.toThrow(
-      /fixed when the sandbox is created/,
-    );
+    await expect(
+      handle.session.setNetworkPolicy({
+        allow: { "a.example.com": [{ forwardURL: "https://proxy.example.com" }] },
+      }),
+    ).rejects.toThrow(/forwardURL/);
+    expect(provider.created[0]?.network.denyOut).toEqual([]);
+  });
+
+  test("onSession's use() applies a per-session policy and returns the session", async () => {
+    const { provider, backend } = setup();
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+
+    const session = await handle.useSessionFn({ networkPolicy: "deny-all" });
+
+    expect(session).toBe(handle.session);
+    expect(provider.created[0]?.network.denyOut).toEqual([ALL_TRAFFIC]);
     await expect(handle.useSessionFn()).resolves.toBe(handle.session);
+  });
+
+  test("bootstrap's use() can tighten the policy for the rest of the template build", async () => {
+    const { provider, backend } = setup();
+
+    await backend.prewarm({
+      templateKey: "tpl-1",
+      runtimeContext,
+      seedFiles: [],
+      async bootstrap({ use }) {
+        await use({ networkPolicy: "deny-all" });
+      },
+    });
+
+    expect(provider.created[0]?.network.denyOut).toEqual([ALL_TRAFFIC]);
   });
 });
