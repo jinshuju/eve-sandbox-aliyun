@@ -36,8 +36,11 @@ const ROOT = "root";
 
 export interface CreateAliyunSandboxBackendInput {
   readonly createOptions?: AliyunSandboxCreateOptions;
-  /** Injectable control plane so backend logic is testable without cloud resources. */
-  readonly provider: Provider;
+  /**
+   * Injectable control plane so backend logic is testable without cloud
+   * resources. A factory is called once, on first use.
+   */
+  readonly provider: Provider | (() => Provider);
 }
 
 interface SandboxUser {
@@ -49,7 +52,16 @@ export function createAliyunSandboxBackend(
   input: CreateAliyunSandboxBackendInput,
 ): SandboxBackend<AliyunSandboxUseOptions, AliyunSandboxUseOptions> {
   const options = resolveAliyunSandboxOptions(input.createOptions);
-  const { provider } = input;
+  let resolvedProvider: Provider | undefined;
+  const provider: Provider = {
+    create: async (createOptions) => await getProvider().create(createOptions),
+    connect: async (sandboxId) => await getProvider().connect(sandboxId),
+    findByMetadata: async (metadata) => await getProvider().findByMetadata(metadata),
+  };
+  function getProvider(): Provider {
+    return (resolvedProvider ??=
+      typeof input.provider === "function" ? input.provider() : input.provider);
+  }
 
   async function runScript(
     sandbox: ProviderSandbox,
