@@ -39,6 +39,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "smoke": "tsx --env-file=.env.local src/integration/aliyun-backend-smoke.ts",
+    "sweep": "tsx --env-file=.env.local src/integration/sweep.ts",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",

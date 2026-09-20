@@ -10,7 +10,7 @@ async function open(shell: FakeShell = () => ({}), overrides = {}) {
   const session = createAliyunSession({
     id: "session-key",
     sandbox,
-    env: { BASE: "1", SHARED: "base" },
+    env: () => ({ BASE: "1", SHARED: "base" }),
     timeoutMs: 600_000,
     now: () => now,
     ...overrides,

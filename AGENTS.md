@@ -34,10 +34,15 @@ as a bug otherwise:
 - A `network` block that is present but empty is rejected at create, yet is
   exactly how restrictions are cleared on update.
 - `commands.kill` reaps child processes here, which upstream envd does not promise.
+- On accounts that do have pause, the SDK object that paused a sandbox is dead
+  afterwards (`500` on any call); only a fresh `connect` by id works. Reported by
+  the GitLab-hosted predecessor of this package, whose account had pause — ours
+  does not, so the smoke test cannot cover it. Never reuse a handle after `pause()`.
 
 So: run `pnpm smoke` before pushing changes to `src/e2b-provider.ts`,
 `src/archive.ts`, or `src/network-policy.ts`. It needs `.env.local` and creates
 billable sandboxes; it destroys every one in `finally` and reports what remains.
+`pnpm sweep` lists (and with `--kill` destroys) what a crashed run left behind.
 
 ## The e2b pin is the central invariant
 

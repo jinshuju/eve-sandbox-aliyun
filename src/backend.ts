@@ -48,6 +48,14 @@ interface SandboxUser {
   readonly name: string;
 }
 
+function readPersistedEnv(metadata: Record<string, unknown> | undefined): Record<string, string> {
+  const env = metadata?.env;
+  if (typeof env !== "object" || env === null) return {};
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}
+
 export function createAliyunSandboxBackend(
   input: CreateAliyunSandboxBackendInput,
 ): SandboxBackend<AliyunSandboxUseOptions, AliyunSandboxUseOptions> {
@@ -123,27 +131,31 @@ export function createAliyunSandboxBackend(
   // Validated up front so a policy the provider cannot express fails at startup.
   const initialNetwork = translateNetworkPolicy(options.networkPolicy);
 
-  function openSession(id: string, sandbox: ProviderSandbox) {
+  function openSession(
+    id: string,
+    sandbox: ProviderSandbox,
+    persistedEnv: Record<string, string> = {},
+  ) {
+    // What use({ env }) added, kept apart from the factory's env so that a
+    // redeploy with a different factory env still takes effect.
+    const sessionEnv = { ...persistedEnv };
     const internal = createAliyunSession({
       id,
       sandbox,
-      env: options.env,
+      env: () => ({ ...options.env, ...sessionEnv }),
       timeoutMs: options.timeoutMs,
     });
     const session = buildPublicSession(internal, async (policy) => {
       await sandbox.updateNetwork(translateNetworkPolicy(policy));
     });
-    return { internal, session };
-  }
-
-  async function useSession(
-    session: SandboxSession,
-    useOptions?: AliyunSandboxUseOptions,
-  ): Promise<SandboxSession> {
-    if (useOptions?.networkPolicy !== undefined) {
-      await session.setNetworkPolicy(useOptions.networkPolicy);
+    async function use(useOptions?: AliyunSandboxUseOptions): Promise<SandboxSession> {
+      if (useOptions?.networkPolicy !== undefined) {
+        await session.setNetworkPolicy(useOptions.networkPolicy);
+      }
+      Object.assign(sessionEnv, useOptions?.env);
+      return session;
     }
-    return session;
+    return { internal, session, sessionEnv, use };
   }
 
   function createSandbox(metadata: Record<string, string>): Promise<ProviderSandbox> {
@@ -199,11 +211,11 @@ export function createAliyunSandboxBackend(
       const sandbox = await createSandbox({ eveTemplateKey: templateKey });
       try {
         const user = await prepareBaseRuntime(sandbox);
-        const { session } = openSession(templateKey, sandbox);
+        const { session, use } = openSession(templateKey, sandbox);
         await writeSeedFiles(session, seedFiles, user);
         if (bootstrap) {
           log?.("aliyun: running sandbox bootstrap");
-          await bootstrap({ use: async (useOptions) => await useSession(session, useOptions) });
+          await bootstrap({ use });
         }
         log?.("aliyun: capturing template archive");
         await captureArchive(sandbox, archivePath);
@@ -240,7 +252,13 @@ export function createAliyunSandboxBackend(
       }
 
       const live = sandbox;
-      const { internal, session } = openSession(sessionKey, live);
+      // eve opens a new handle every turn but runs onSession once, so what
+      // use({ env }) set travels through the persisted state.
+      const { internal, session, sessionEnv, use } = openSession(
+        sessionKey,
+        live,
+        readPersistedEnv(existingMetadata),
+      );
       let released: Promise<void> | undefined;
       const releaseCompute = () =>
         (released ??= (async () => {
@@ -259,11 +277,14 @@ export function createAliyunSandboxBackend(
         }));
       return {
         session,
-        useSessionFn: async (useOptions) => await useSession(session, useOptions),
+        useSessionFn: use,
         async captureState() {
           return {
             backendName: ALIYUN_BACKEND_NAME,
-            metadata: { sandboxId: live.id },
+            metadata: {
+              sandboxId: live.id,
+              ...(Object.keys(sessionEnv).length > 0 ? { env: { ...sessionEnv } } : {}),
+            },
             sessionKey,
           };
         },
