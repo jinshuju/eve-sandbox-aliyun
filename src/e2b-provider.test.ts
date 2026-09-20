@@ -121,7 +121,8 @@ describe("createE2bProvider", () => {
       network: { allowOut: [], denyOut: ["0.0.0.0/0"], rules: {} },
     });
 
-    expect((calls[0]?.[2] as { network: unknown }).network).toEqual({ denyOut: ["0.0.0.0/0"] });
+    expect(calls[0]?.[2]).toMatchObject({ network: { denyOut: ["0.0.0.0/0"] } });
+    expect(calls[0]?.[2]).not.toHaveProperty("network.allowOut");
   });
 
   test("startCommand runs in the background with the provider's command timeout disabled", async () => {
