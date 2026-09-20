@@ -9,13 +9,15 @@
     "eve",
     "sandbox"
   ],
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jinshuju/eve-sandbox-aliyun.git"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "exports": {
