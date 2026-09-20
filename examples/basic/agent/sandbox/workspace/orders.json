@@ -1,0 +1,5 @@
+[
+  { "city": "Hangzhou", "orders": 42 },
+  { "city": "Beijing", "orders": 17 },
+  { "city": "Shenzhen", "orders": 58 }
+]
