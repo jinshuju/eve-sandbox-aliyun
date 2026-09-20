@@ -133,3 +133,46 @@ export class FakeProvider implements Provider {
       .map((sandbox) => sandbox.id);
   }
 }
+
+export interface FakeLinuxShellOptions {
+  readonly home?: string;
+  /** Extra behaviour for authored commands; return `undefined` to fall through. */
+  readonly onCommand?: (
+    options: ProviderStartCommandOptions,
+    sandbox: FakeSandbox,
+  ) => FakeCommandResult | undefined;
+}
+
+/**
+ * A shell that behaves like the real sandbox for the commands the backend
+ * itself issues: probing the home directory, capturing a filesystem archive,
+ * and restoring one. Archives are JSON snapshots of the fake filesystem, so
+ * tests can assert that files genuinely travel between sandboxes.
+ */
+export function createFakeLinuxShell(options: FakeLinuxShellOptions = {}): FakeShell {
+  const home = options.home ?? "/home/user";
+  return (command, sandbox) => {
+    const authored = options.onCommand?.(command, sandbox);
+    if (authored !== undefined) return authored;
+    const script = command.command;
+    const archivePath = /(\/\S+\.tgz)/.exec(script)?.[1];
+    if (script.includes("tar") && script.includes("-czpf") && archivePath) {
+      const snapshot = [...sandbox.files]
+        .filter(([path]) => path !== archivePath)
+        .map(([path, bytes]) => [path, Buffer.from(bytes).toString("base64")]);
+      sandbox.files.set(archivePath, Buffer.from(JSON.stringify(snapshot)));
+      return {};
+    }
+    if (script.includes("tar") && script.includes("-xzpf") && archivePath) {
+      const archive = sandbox.files.get(archivePath);
+      if (archive === undefined) return { exitCode: 2, stderr: "tar: archive missing\n" };
+      for (const [path, base64] of JSON.parse(Buffer.from(archive).toString()) as string[][]) {
+        sandbox.files.set(path as string, Buffer.from(base64 as string, "base64"));
+      }
+      sandbox.files.delete(archivePath);
+      return {};
+    }
+    if (script.includes('"$HOME"')) return { stdout: `${home}\nuser\n` };
+    return {};
+  };
+}
