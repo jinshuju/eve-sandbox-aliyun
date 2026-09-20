@@ -431,3 +431,72 @@ describe("network policy", () => {
     expect(provider.created[0]?.network.denyOut).toEqual([ALL_TRAFFIC]);
   });
 });
+
+describe("session environment", () => {
+  function lastEnvs(provider: FakeProvider) {
+    return provider.created.at(-1)?.commands.at(-1)?.envs;
+  }
+
+  test("use({ env }) adds variables to every later command; per-call env still wins", async () => {
+    const { provider, backend } = setup(undefined, { env: { BASE: "factory", TOKEN: "factory" } });
+    const handle = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+
+    const session = await handle.useSessionFn({ env: { TOKEN: "session" } });
+    await session.run({ command: "true" });
+    expect(lastEnvs(provider)).toEqual({ BASE: "factory", TOKEN: "session" });
+
+    await session.run({ command: "true", env: { TOKEN: "call" } });
+    expect(lastEnvs(provider)).toEqual({ BASE: "factory", TOKEN: "call" });
+  });
+
+  test("the session environment survives into the next turn's handle", async () => {
+    // eve opens a new handle every turn but runs onSession only once.
+    const { provider, backend } = setup();
+    const first = await backend.create({ templateKey: null, sessionKey: "s-1", runtimeContext });
+    await first.useSessionFn({ env: { TOKEN: "session" } });
+    const state = await first.captureState();
+    expect(state.metadata).toEqual({
+      sandboxId: provider.created[0]?.id,
+      env: { TOKEN: "session" },
+    });
+
+    const second = await backend.create({
+      templateKey: null,
+      sessionKey: "s-1",
+      runtimeContext,
+      existingMetadata: state.metadata,
+    });
+    await second.session.run({ command: "true" });
+
+    expect(lastEnvs(provider)).toEqual({ TOKEN: "session" });
+    expect((await second.captureState()).metadata).toEqual(state.metadata);
+  });
+
+  test("ignores persisted environment that is not a string map", async () => {
+    const { provider, backend } = setup();
+    const handle = await backend.create({
+      templateKey: null,
+      sessionKey: "s-1",
+      runtimeContext,
+      existingMetadata: { env: { GOOD: "yes", BAD: 1 } },
+    });
+    await handle.session.run({ command: "true" });
+
+    expect(lastEnvs(provider)).toEqual({ GOOD: "yes" });
+  });
+
+  test("bootstrap's use({ env }) applies to the rest of the template build", async () => {
+    const { provider, backend } = setup();
+
+    await backend.prewarm({
+      templateKey: "tpl-1",
+      runtimeContext,
+      seedFiles: [],
+      async bootstrap({ use }) {
+        const sandbox = await use({ env: { DEBIAN_FRONTEND: "noninteractive" } });
+        await sandbox.run({ command: "true" });
+        expect(lastEnvs(provider)).toEqual({ DEBIAN_FRONTEND: "noninteractive" });
+      },
+    });
+  });
+});

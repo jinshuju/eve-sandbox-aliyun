@@ -55,6 +55,22 @@ export default defineSandbox({
 });
 ```
 
+### Per-session environment
+
+`use({ env })` adds variables to every later command in that session — no env file on disk, no
+login-shell tricks. Per-call `env` still wins, and the factory's `env` sits underneath:
+
+```ts
+async onSession({ use, ctx }) {
+  await use({ env: { API_TOKEN: mintToken(ctx.session.id) } });
+},
+```
+
+eve opens a new handle every turn but runs `onSession` once, so these variables travel in eve's
+session state (next to the sandbox id) and are still there on the next turn, after a pause, and
+in a replacement sandbox. They are visible to anything running in the sandbox — for a secret the
+sandbox must never see, use a [network policy](#network-policy) `transform` instead.
+
 [`examples/basic`](./examples/basic) is a complete agent (DeepSeek model, a seeded data file, a
 `bootstrap` that installs `jq`).
 

@@ -10,8 +10,8 @@ export const DEFAULT_KEEP_ALIVE_INTERVAL_MS = 60_000;
 export interface CreateAliyunSessionInput {
   readonly id: string;
   readonly sandbox: ProviderSandbox;
-  /** Environment applied to every command; per-call `env` wins. */
-  readonly env: Readonly<Record<string, string>>;
+  /** Environment applied to every command, read at spawn time; per-call `env` wins. */
+  readonly env: () => Readonly<Record<string, string>>;
   /** Lifetime the sandbox is reset to on activity. */
   readonly timeoutMs: number;
   readonly keepAliveIntervalMs?: number;
@@ -64,7 +64,7 @@ export function createAliyunSession(input: CreateAliyunSessionInput): AliyunSess
           {
             command: options.command,
             cwd: resolveWorkspacePath(options.workingDirectory ?? WORKSPACE_ROOT),
-            envs: { ...input.env, ...options.env },
+            envs: { ...input.env(), ...options.env },
           },
           callbacks,
         ),

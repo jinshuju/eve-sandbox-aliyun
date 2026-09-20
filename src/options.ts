@@ -25,6 +25,11 @@ export interface AliyunSandboxCreateOptions {
 
 /** Options accepted by `use()` in `bootstrap` and `onSession`. */
 export interface AliyunSandboxUseOptions {
+  /**
+   * Environment variables added to every later command in this session, over
+   * the factory's `env`. Kept in eve's session state, so they outlast the turn.
+   */
+  readonly env?: Readonly<Record<string, string>>;
   readonly networkPolicy?: SandboxNetworkPolicy;
 }
 

@@ -177,6 +177,23 @@ try {
     },
   );
 
+  await check("use({ env }) reaches later commands and the next turn's handle", async () => {
+    await handle.useSessionFn({ env: { SMOKE_TOKEN: "per session" } });
+    assert.equal(
+      (await session.run({ command: 'printf %s "$SMOKE_TOKEN"' })).stdout,
+      "per session",
+    );
+    const next = await backend.create({
+      templateKey,
+      sessionKey,
+      runtimeContext,
+      tags,
+      existingMetadata: (await handle.captureState()).metadata,
+    });
+    const result = await next.session.run({ command: 'printf %s "$SMOKE_TOKEN"' });
+    assert.equal(result.stdout, "per session");
+  });
+
   await check("create reattaches to the live sandbox", async () => {
     await session.writeTextFile({ path: "work.txt", content: "in progress\n" });
     const again = await backend.create({
@@ -208,6 +225,10 @@ try {
       `      ${resumedId === firstSandboxId ? "resumed by pause" : "restored from checkpoint"}`,
     );
     assert.equal(await session.readTextFile({ path: "work.txt" }), "in progress\n");
+    assert.equal(
+      (await session.run({ command: 'printf %s "$SMOKE_TOKEN"' })).stdout,
+      "per session",
+    );
     const result = await session.run({ command: `eve-tool; echo '{"a":7}' | jq .a` });
     assert.equal(result.stdout, "eve-tool-ok\n7\n");
   });
