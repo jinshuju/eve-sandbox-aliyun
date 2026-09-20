@@ -1,5 +1,7 @@
 # @jinshuju/eve-sandbox-aliyun
 
+[![npm](https://img.shields.io/npm/v/@jinshuju/eve-sandbox-aliyun)](https://www.npmjs.com/package/@jinshuju/eve-sandbox-aliyun)
+
 An [Aliyun cloud sandbox](https://help.aliyun.com/zh/functioncompute/sandbox-function/)
 (FC Agent Sandbox) `SandboxBackend` for [eve](https://eve.dev) agents. It gives agent-executed
 code a real, remote Linux machine — real binaries, passwordless `sudo`, a firewall with
