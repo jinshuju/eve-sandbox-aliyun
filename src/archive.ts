@@ -49,13 +49,14 @@ const LIST_PATH = `${STATE_DIR}/changed.list`;
  * often Alpine or Wolfi: BusyBox find has no `-cnewer` and its tar no `--null`,
  * so ctimes come from `stat` (`%z` sorts as text, nanoseconds included) and the
  * list is newline-separated — a file name containing a newline is not captured.
- * find's own exit status is ignored because files vanish under a live system;
- * tar exits 1 when a file changed while being read, which is not a failure either.
+ * find's own exit status is ignored because files vanish under a live system.
  */
 export function buildCaptureScript(): string {
   const prune = PRUNED_PATHS.map((path) => `-path ${path}`).join(" -o ");
   return [
     "cd /",
+    // A stale archive must not pass for this capture's.
+    `rm -f ${ARCHIVE_PATH}`,
     `marker=$(stat -c %z ${MARKER_PATH})`,
     `[ -n "$marker" ] || { echo "cannot read the ctime of ${MARKER_PATH}" >&2; exit 1; }`,
     `find / -xdev \\( ${prune} \\) -prune -o -exec stat -c '%z|%n' {} + 2>/dev/null \\`,
@@ -63,7 +64,11 @@ export function buildCaptureScript(): string {
     `  > ${LIST_PATH}`,
     `tar --no-recursion -T ${LIST_PATH} -czpf ${ARCHIVE_PATH} 2>${STATE_DIR}/tar.err`,
     "status=$?",
-    `if [ "$status" -gt 1 ]; then cat ${STATE_DIR}/tar.err >&2; exit "$status"; fi`,
+    // Exit 1 is "a file changed while being read" to GNU tar but a real error to
+    // BusyBox tar, so it is only forgiven when an archive actually came out.
+    `if [ "$status" -gt 1 ] || [ ! -s ${ARCHIVE_PATH} ]; then`,
+    `  cat ${STATE_DIR}/tar.err >&2; [ "$status" -ne 0 ] || status=1; exit "$status"`,
+    "fi",
   ].join("\n");
 }
 
