@@ -155,6 +155,11 @@ Differences from the Vercel backend, which throw rather than silently changing w
 - **Process output is text.** The SDK delivers stdout/stderr as decoded strings, so invalid UTF-8
   arrives as U+FFFD. eve's own Vercel backend has the same model. File reads and writes are
   byte-exact; move binary data through files.
+- **Custom templates can be BusyBox-based.** Base setup, capture and restore use only what GNU
+  and BusyBox userlands share (`bash`, `find`, `stat`, `awk`, `tar`), and are verified against a
+  Debian template and a Wolfi one. Such images often have no `sudo` and no `~/.profile`, so a
+  `bootstrap` written for Debian may need adjusting — e.g. `~/.local/bin` is not on `PATH`
+  unless you put it there with `use({ env })`.
 - **A checkpoint is a delta, not an image.** It records what was added or changed since base
   setup, not deletions of files that shipped in the base image, and `/tmp`, `/var/tmp`,
   `/var/cache`, `/var/log` and apt's package lists are excluded. Memory and running processes

@@ -37,19 +37,31 @@ const PRUNED_PATHS = [
   "/var/lib/apt/lists",
 ];
 
+const LIST_PATH = `${STATE_DIR}/changed.list`;
+
 /**
  * Archives every filesystem entry whose inode changed after base setup — the
  * provider offers no snapshots, so this delta *is* the template or the session
- * checkpoint. `-cnewer` (ctime) is deliberate: package managers restore old
- * mtimes on the files they install, but ctime always moves. tar exits 1 when
- * a file changed while being read, which is not a failure for a live system.
+ * checkpoint. ctime is deliberate: package managers restore old mtimes on the
+ * files they install, but ctime always moves.
+ *
+ * Written for the userland GNU and BusyBox share, since custom templates are
+ * often Alpine or Wolfi: BusyBox find has no `-cnewer` and its tar no `--null`,
+ * so ctimes come from `stat` (`%z` sorts as text, nanoseconds included) and the
+ * list is newline-separated — a file name containing a newline is not captured.
+ * find's own exit status is ignored because files vanish under a live system;
+ * tar exits 1 when a file changed while being read, which is not a failure either.
  */
 export function buildCaptureScript(): string {
   const prune = PRUNED_PATHS.map((path) => `-path ${path}`).join(" -o ");
   return [
     "cd /",
-    `find / -xdev \\( ${prune} \\) -prune -o -cnewer ${MARKER_PATH} -print0 \\`,
-    `  | tar --null --no-recursion -T - -czpf ${ARCHIVE_PATH} 2>${STATE_DIR}/tar.err`,
+    `marker=$(stat -c %z ${MARKER_PATH})`,
+    `[ -n "$marker" ] || { echo "cannot read the ctime of ${MARKER_PATH}" >&2; exit 1; }`,
+    `find / -xdev \\( ${prune} \\) -prune -o -exec stat -c '%z|%n' {} + 2>/dev/null \\`,
+    `  | awk -v marker="$marker" '{ bar = index($0, "|"); if (substr($0, 1, bar - 1) > marker) print substr($0, bar + 1) }' \\`,
+    `  > ${LIST_PATH}`,
+    `tar --no-recursion -T ${LIST_PATH} -czpf ${ARCHIVE_PATH} 2>${STATE_DIR}/tar.err`,
     "status=$?",
     `if [ "$status" -gt 1 ]; then cat ${STATE_DIR}/tar.err >&2; exit "$status"; fi`,
   ].join("\n");
