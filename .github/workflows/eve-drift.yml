@@ -35,16 +35,20 @@ jobs:
       # asks "does today's eve still work", it does not change what the package
       # ships.
       - name: Install eve@${{ steps.eve.outputs.version }}
-        run: pnpm add -D "eve@${{ steps.eve.outputs.version }}"
+        run: pnpm add -wD "eve@${{ steps.eve.outputs.version }}"
 
       - name: Typecheck against the newest eve
+        id: typecheck
         run: pnpm typecheck
 
       - name: Test against the newest eve
+        id: test
         run: pnpm test
 
+      # Only a typecheck or test failure says anything about eve. A broken
+      # install step is this workflow's bug, and the red run already reports it.
       - name: Open an issue when the newest eve breaks the contract
-        if: failure()
+        if: failure() && (steps.typecheck.conclusion == 'failure' || steps.test.conclusion == 'failure')
         uses: actions/github-script@v7
         with:
           script: |
