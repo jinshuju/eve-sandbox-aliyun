@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.2.0...v0.2.1) (2026-09-21)
+
+
+### Fixes
+
+* capture templates and checkpoints on BusyBox-based images ([aa10d9b](https://github.com/jinshuju/eve-sandbox-aliyun/commit/aa10d9bcbbea8a5fecafb3d2ac5d7a954de9cb10))
+* capture templates and checkpoints on BusyBox-based images ([95913e3](https://github.com/jinshuju/eve-sandbox-aliyun/commit/95913e37cc648265af51a50272c4b1181f1e9c55))
+* do not report a capture as done without an archive ([9625c57](https://github.com/jinshuju/eve-sandbox-aliyun/commit/9625c570735e0d04445ad55a590a9e8c97217b9e))
+
 ## [0.2.0](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.1.1...v0.2.0) (2026-09-20)
 
 
