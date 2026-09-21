@@ -169,7 +169,7 @@ try {
         allow: { "httpbin.org": [{ transform: [{ headers: { "x-eve-smoke": runId } }] }] },
       });
       assert.notEqual((await session.run({ command: probe })).stdout, "200");
-      const echoed = await session.run({ command: "curl -sS -m 20 https://httpbin.org/headers" });
+      const echoed = await session.run({ command: "curl -fsS -m 20 https://httpbin.org/headers" });
       if (echoed.exitCode === 0) assert.match(echoed.stdout, new RegExp(runId));
       else console.log("      (httpbin.org unreachable from this region; injection not asserted)");
       await session.setNetworkPolicy("allow-all");
