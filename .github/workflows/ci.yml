@@ -35,10 +35,10 @@ jobs:
         # Both ends of the declared peer range, resolved from npm exactly as a
         # consumer would get them. `verify` proves structural compatibility;
         # this proves the *runtime* import works, which is a separate claim --
-        # dist/backend.js imports a value from eve/sandbox
-        # (SandboxTemplateNotProvisionedError), so a peer that typechecks could
-        # still fail to load.
-        eve: ["0.27.13", "latest"]
+        # dist/index.js imports a value from eve/sandbox/provider
+        # (defineSandboxProvider), so a peer that typechecks could still fail
+        # to load.
+        eve: ["0.64.0", "latest"]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -63,12 +63,12 @@ jobs:
           node -p "'resolved eve: ' + require('./node_modules/eve/package.json').version"
           cat > smoke.mjs <<'SMOKE'
           import { createRequire } from "node:module";
-          import { aliyun, createAliyunSandboxBackend, translateNetworkPolicy } from "@jinshuju/eve-sandbox-aliyun";
+          import { AliyunSandbox, createAliyunSandboxImplementation, translateNetworkPolicy } from "@jinshuju/eve-sandbox-aliyun";
 
-          if (typeof aliyun !== "function") throw new Error("aliyun export missing");
-          if (typeof createAliyunSandboxBackend !== "function") throw new Error("createAliyunSandboxBackend export missing");
+          if (typeof AliyunSandbox?.environment !== "function") throw new Error("AliyunSandbox export missing");
+          if (typeof createAliyunSandboxImplementation !== "function") throw new Error("createAliyunSandboxImplementation export missing");
           if (typeof translateNetworkPolicy !== "function") throw new Error("translateNetworkPolicy export missing");
-          if (aliyun({ connectionEnv: {} }).name !== "aliyun") throw new Error("backend name changed");
+          if (AliyunSandbox.environment({ connectionEnv: {} }).provider !== "aliyun") throw new Error("provider name changed");
 
           // The lockfile pins e2b for this repo, but a consumer resolves the
           // published range. Anything newer than 2.31.0 creates sandboxes via

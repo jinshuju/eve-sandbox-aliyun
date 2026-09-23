@@ -19,11 +19,11 @@ importers:
         specifier: ^7.0.44
         version: 7.0.107(zod@4.6.5)
       eve:
-        specifier: 0.63.0
-        version: 0.63.0(ai@7.0.107(zod@4.6.5))
+        specifier: 0.64.1
+        version: 0.64.1(ai@7.0.107(zod@4.6.5))
       eve-floor:
-        specifier: npm:eve@0.27.13
-        version: eve@0.27.13(ai@7.0.107(zod@4.6.5))(lru-cache@11.5.3)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15))
+        specifier: npm:eve@0.64.0
+        version: eve@0.64.0(ai@7.0.107(zod@4.6.5))
       oxfmt:
         specifier: 0.58.0
         version: 0.58.0
@@ -666,29 +666,6 @@ packages:
       srvx:
         optional: true
 
-  db0@0.3.4:
-    resolution: {integrity: sha512-RiXXi4WaNzPTHEOu8UPQKMooIbqOEyqA1t7Z6MsdxSCeb8iUC9ko3LcmsLmeUt2SM5bctfArZKkRQggKZz7JNw==}
-    peerDependencies:
-      '@electric-sql/pglite': '*'
-      '@libsql/client': '*'
-      better-sqlite3: '*'
-      drizzle-orm: '*'
-      mysql2: '*'
-      sqlite3: '*'
-    peerDependenciesMeta:
-      '@electric-sql/pglite':
-        optional: true
-      '@libsql/client':
-        optional: true
-      better-sqlite3:
-        optional: true
-      drizzle-orm:
-        optional: true
-      mysql2:
-        optional: true
-      sqlite3:
-        optional: true
-
   db0@0.4.1:
     resolution: {integrity: sha512-6RBY/bSn42UrqATwsiULj2uYFyEykB3XeA/NLIVQeHNXlYV6D4Idxx3/aa6k5Y45Dwzx7sygeLotnqHWSeURYA==}
 
@@ -702,24 +679,6 @@ packages:
   e2b@2.31.0:
     resolution: {integrity: sha512-vXQomb16mOk+ufi3YFfN6eURm6eC0NZGMK49PXibfpsmy0azcvLbQuHxCkhgyAk5z5GVfrEUwc08QKVtt6KNFg==}
     engines: {node: '>=20.18.1'}
-
-  env-runner@0.1.16:
-    resolution: {integrity: sha512-2LRJM4P2KLX6J83QZZrMqvgCDt/D5ea7wPcI3yYiy5cG/9rX5QwdwZFx0D7ktWnjdRyZxYjttGGorb5nFqb1CA==}
-    hasBin: true
-    peerDependencies:
-      '@netlify/runtime': ^4.1.23
-      '@vercel/queue': '>=0.2.0'
-      miniflare: ^4.20260515.0
-      wrangler: ^4.0.0
-    peerDependenciesMeta:
-      '@netlify/runtime':
-        optional: true
-      '@vercel/queue':
-        optional: true
-      miniflare:
-        optional: true
-      wrangler:
-        optional: true
 
   env-runner@0.2.3:
     resolution: {integrity: sha512-S8EFBKyznRwPVwayK187cYjvnpgC92xy+q0BIF++V965pfjMVVRbQ/HoTYGA/1EHmZ7E68k6Heq+4WnvVhOL5w==}
@@ -736,34 +695,15 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
-  eve@0.27.13:
-    resolution: {integrity: sha512-RN5EDp+w3H9kTH/92DYmWlt1vZ1vKLgdfoXpL9zRodC1wEBS51w97odDKcreR5+XtC+q+mNTmmAMQUQvk0c8gg==}
-    engines: {node: '>=24'}
-    hasBin: true
-    peerDependencies:
-      '@opentelemetry/api': ^1.0.0
-      ai: ^7.0.38
-      braintrust: ^3.0.0
-      just-bash: ^3.0.0
-      microsandbox: ^0.5.0
-    peerDependenciesMeta:
-      '@opentelemetry/api':
-        optional: true
-      braintrust:
-        optional: true
-      just-bash:
-        optional: true
-      microsandbox:
-        optional: true
-
-  eve@0.63.0:
-    resolution: {integrity: sha512-iDv0S4MXvZimaXNTJnyB2THumRQLWQSAgpMcZsGtMNquYQpSKB1+i8sxX4KJOHHCLd04lwD+06xnh+ja7rlZIw==}
+  eve@0.64.0:
+    resolution: {integrity: sha512-5gMr7/y+1TO1YC90d42whmnGUUPDkjA+qPSNo+GjSFE8VV8J8VjLqDcNM3AqTASpsuzdtW2/EGmh5ekzxp/3gg==}
     engines: {node: '>=24'}
     hasBin: true
     peerDependencies:
       '@opentelemetry/api': ^1.0.0
       ai: ^7.0.105
       braintrust: ^3.0.0
+      chat: ^4.41.0
       dd-trace: ^6.13.0
       just-bash: ^3.1.0
       microsandbox: ^0.5.0
@@ -771,6 +711,34 @@ packages:
       '@opentelemetry/api':
         optional: true
       braintrust:
+        optional: true
+      chat:
+        optional: true
+      dd-trace:
+        optional: true
+      just-bash:
+        optional: true
+      microsandbox:
+        optional: true
+
+  eve@0.64.1:
+    resolution: {integrity: sha512-dOvgtqg6RAx1I8x5cuzQeKyMXx8YXhEwixQGjdDRJUne6g46tcHNHz4IObOq92+SfSiL4wdS0SqnZnMrH4oOeQ==}
+    engines: {node: '>=24'}
+    hasBin: true
+    peerDependencies:
+      '@opentelemetry/api': ^1.0.0
+      ai: ^7.0.105
+      braintrust: ^3.0.0
+      chat: ^4.41.0
+      dd-trace: ^6.13.0
+      just-bash: ^3.1.0
+      microsandbox: ^0.5.0
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+      braintrust:
+        optional: true
+      chat:
         optional: true
       dd-trace:
         optional: true
@@ -813,16 +781,6 @@ packages:
     engines: {node: 20 || >=22}
     deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
     hasBin: true
-
-  h3@2.0.1-rc.22:
-    resolution: {integrity: sha512-Esv0DMIuPkCTSWCA0vO73vcTqwzH1wjSrAO1TXNu/K3up1sZHa9EKMapbmxCDYBeymC3fVTk4qxp7ogQWQ+KgA==}
-    engines: {node: '>=20.11.1'}
-    hasBin: true
-    peerDependencies:
-      crossws: ^0.4.1
-    peerDependenciesMeta:
-      crossws:
-        optional: true
 
   h3@2.0.1-rc.32:
     resolution: {integrity: sha512-Epg1E85L8yIKd9UeAQAVdm6QVrnHbppMsQ641EjpNi4c0IlAg+PJlwp4Xw03Z1loRXPQaH9k64gJT5qDELqm+g==}
@@ -950,37 +908,6 @@ packages:
   nf3@0.3.24:
     resolution: {integrity: sha512-HxLK4bo+5jNsEETZp4w3tJblHOA9MCBY14IN9nZJJV8JDxt9yNIYxuBuLMjTAR5GFa3HL61+8VQDUrXv3/C8fw==}
 
-  nitro@3.0.260610-beta:
-    resolution: {integrity: sha512-KPb4L5yaF/Rx/xoGMpgHRJvZhbhGiqbRKOwwPLCH9jKTKTsEUHLjnJas85AeCzaswqa8Wi52eQBtRsODC4PS0Q==}
-    engines: {node: ^20.19.0 || >=22.12.0}
-    hasBin: true
-    peerDependencies:
-      '@vercel/queue': ^0.3.0
-      dotenv: '*'
-      giget: '*'
-      jiti: ^2.7.0
-      rollup: ^4.61.1
-      vite: ^7 || ^8
-      xml2js: ^0.6.2
-      zephyr-agent: ^0.2.0
-    peerDependenciesMeta:
-      '@vercel/queue':
-        optional: true
-      dotenv:
-        optional: true
-      giget:
-        optional: true
-      jiti:
-        optional: true
-      rollup:
-        optional: true
-      vite:
-        optional: true
-      xml2js:
-        optional: true
-      zephyr-agent:
-        optional: true
-
   nitro@3.0.260903-beta:
     resolution: {integrity: sha512-54gANPi62O8rfMvepiJUVuIzEIinYfpeHbebywlLxvVTgIYXDwSvpaU9Id+0sJOBjBx0wC1/CVYXJkH7SY+l0g==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -990,17 +917,8 @@ packages:
     resolution: {integrity: sha512-XrsrhT5sybtKI6wakr2SPOlGZWWYbUXZ7a0jT8/QOeAPau+1X/bSegNe5YR75oJmEZQbKningirmGOEJCIk61Q==}
     engines: {node: '>=12.20.0'}
 
-  ocache@0.1.5:
-    resolution: {integrity: sha512-kNNnkkVQup/QDvmTz8Q84wc2ntiyoVHDxa6eHWKt5qdGAmFRBIxy83rxgCYEjW0x06UJ9E3P6VgM2yY4rOBH4w==}
-
   ocache@0.3.0:
     resolution: {integrity: sha512-RS/9P0zeBb0gDJmadGERLH8lZNXK7xbufTDhclkXGvFGTsj0G4M5/cLk+mizcERH29mLXNnocfB5wjcK70wGJg==}
-
-  ofetch@2.0.0-alpha.3:
-    resolution: {integrity: sha512-zpYTCs2byOuft65vI3z43Dd6iSdFbOZZLb9/d21aCpx2rGastVU9dOCv0lu4ykc1Ur1anAYjDi3SUvR0vq50JA==}
-
-  ohash@2.0.12:
-    resolution: {integrity: sha512-65S/5gk9YSsaRjcyf7Nfa6h/d3E8/1gslpXfI4W7Dxn/oap8IKRuNT5VXkLQ1YFKIEg4apRY4Pj6aiwFzrDdmw==}
 
   openapi-fetch@0.14.1:
     resolution: {integrity: sha512-l7RarRHxlEZYjMLd/PR0slfMVse2/vvIAGm75/F7J6MlQ8/b9uUQmUF2kCPrQhJqMXSxmYWObVgeYXbFYzZR+A==}
@@ -1067,9 +985,6 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
-  rou3@0.8.1:
-    resolution: {integrity: sha512-ePa+XGk00/3HuCqrEnK3LxJW7I0SdNg6EFzKUJG73hMAdDcOUC/i/aSz7LSDwLrGr33kal/rqOGydzwl6U7zBA==}
-
   rou3@0.9.2:
     resolution: {integrity: sha512-3SOzvaAg8rkHrXtRjpCvCvbyO5to9oOO27Z/XqHEYXfMRVSw/qMIVdmaOk9W2lcRLtR6dlqTjo9hDeJk70QBYQ==}
 
@@ -1091,11 +1006,6 @@ packages:
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
-
-  srvx@0.11.22:
-    resolution: {integrity: sha512-LqZxxBDMKuMAZzFzJnDCkFOrs9MZQZr0LvHiO/SuSZVdQaXD7xQ5UWTUxheJrQPve1qk9MG2B/yttUvJxw8egQ==}
-    engines: {node: '>=20.16.0'}
-    hasBin: true
 
   srvx@1.0.5:
     resolution: {integrity: sha512-KvSKRpgPG/oaq3cyT614OQ2bAa7DynuGamivCZeoZzIUULOdbQz6wUtnnVuC4+DCx2Zglzo8v5gBYmWIWYhDxA==}
@@ -1157,80 +1067,6 @@ packages:
 
   unstorage@2.0.0-alpha.10:
     resolution: {integrity: sha512-6h1veZp8gnp4dGllf0tDijoXxDYymJu251IpKKkrSVH+QHL6tXFbwG85KM+CBHSgpkkgtPuIiZ9oLCLP5+1Evw==}
-
-  unstorage@2.0.0-alpha.7:
-    resolution: {integrity: sha512-ELPztchk2zgFJnakyodVY3vJWGW9jy//keJ32IOJVGUMyaPydwcA1FtVvWqT0TNRch9H+cMNEGllfVFfScImog==}
-    peerDependencies:
-      '@azure/app-configuration': ^1.11.0
-      '@azure/cosmos': ^4.9.1
-      '@azure/data-tables': ^13.3.2
-      '@azure/identity': ^4.13.0
-      '@azure/keyvault-secrets': ^4.10.0
-      '@azure/storage-blob': ^12.31.0
-      '@capacitor/preferences': ^6 || ^7 || ^8
-      '@deno/kv': '>=0.13.0'
-      '@netlify/blobs': ^6.5.0 || ^7.0.0 || ^8.1.0 || ^9.0.0 || ^10.0.0
-      '@planetscale/database': ^1.19.0
-      '@upstash/redis': ^1.36.2
-      '@vercel/blob': '>=0.27.3'
-      '@vercel/functions': ^2.2.12 || ^3.0.0
-      '@vercel/kv': ^1.0.1
-      aws4fetch: ^1.0.20
-      chokidar: ^4 || ^5
-      db0: '>=0.3.4'
-      idb-keyval: ^6.2.2
-      ioredis: ^5.9.3
-      lru-cache: ^11.2.6
-      mongodb: ^6 || ^7
-      ofetch: '*'
-      uploadthing: ^7.7.4
-    peerDependenciesMeta:
-      '@azure/app-configuration':
-        optional: true
-      '@azure/cosmos':
-        optional: true
-      '@azure/data-tables':
-        optional: true
-      '@azure/identity':
-        optional: true
-      '@azure/keyvault-secrets':
-        optional: true
-      '@azure/storage-blob':
-        optional: true
-      '@capacitor/preferences':
-        optional: true
-      '@deno/kv':
-        optional: true
-      '@netlify/blobs':
-        optional: true
-      '@planetscale/database':
-        optional: true
-      '@upstash/redis':
-        optional: true
-      '@vercel/blob':
-        optional: true
-      '@vercel/functions':
-        optional: true
-      '@vercel/kv':
-        optional: true
-      aws4fetch:
-        optional: true
-      chokidar:
-        optional: true
-      db0:
-        optional: true
-      idb-keyval:
-        optional: true
-      ioredis:
-        optional: true
-      lru-cache:
-        optional: true
-      mongodb:
-        optional: true
-      ofetch:
-        optional: true
-      uploadthing:
-        optional: true
 
   vite@8.3.0:
     resolution: {integrity: sha512-lhZBVvEHefgE+HQZC9O7EBJgCU/nVzFNl7vkS4RE0APtWLP02/8QVIkQtzBxPquh7lq5/78NHipTj7ODQ6XuyQ==}
@@ -1714,15 +1550,9 @@ snapshots:
       shebang-command: 2.0.0
       which: 2.0.2
 
-  crossws@0.4.12(srvx@0.11.22):
-    optionalDependencies:
-      srvx: 0.11.22
-
   crossws@0.4.12(srvx@1.0.5):
     optionalDependencies:
       srvx: 1.0.5
-
-  db0@0.3.4: {}
 
   db0@0.4.1: {}
 
@@ -1746,13 +1576,6 @@ snapshots:
       platform: 1.3.6
       tar: 7.5.22
       undici: 7.29.1
-
-  env-runner@0.1.16:
-    dependencies:
-      crossws: 0.4.12(srvx@0.11.22)
-      exsolve: 1.1.1
-      httpxy: 0.5.5
-      srvx: 0.11.22
 
   env-runner@0.2.3:
     dependencies:
@@ -1796,52 +1619,13 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eve@0.27.13(ai@7.0.107(zod@4.6.5))(lru-cache@11.5.3)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)):
+  eve@0.64.0(ai@7.0.107(zod@4.6.5)):
     dependencies:
       ai: 7.0.107(zod@4.6.5)
-      nitro: 3.0.260610-beta(lru-cache@11.5.3)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15))
+      nitro: 3.0.260903-beta
       undici: 8.9.0
-    transitivePeerDependencies:
-      - '@azure/app-configuration'
-      - '@azure/cosmos'
-      - '@azure/data-tables'
-      - '@azure/identity'
-      - '@azure/keyvault-secrets'
-      - '@azure/storage-blob'
-      - '@capacitor/preferences'
-      - '@deno/kv'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@netlify/blobs'
-      - '@netlify/runtime'
-      - '@planetscale/database'
-      - '@upstash/redis'
-      - '@vercel/blob'
-      - '@vercel/functions'
-      - '@vercel/kv'
-      - '@vercel/queue'
-      - aws4fetch
-      - better-sqlite3
-      - chokidar
-      - dotenv
-      - drizzle-orm
-      - giget
-      - idb-keyval
-      - ioredis
-      - jiti
-      - lru-cache
-      - miniflare
-      - mongodb
-      - mysql2
-      - rollup
-      - sqlite3
-      - uploadthing
-      - vite
-      - wrangler
-      - xml2js
-      - zephyr-agent
 
-  eve@0.63.0(ai@7.0.107(zod@4.6.5)):
+  eve@0.64.1(ai@7.0.107(zod@4.6.5)):
     dependencies:
       ai: 7.0.107(zod@4.6.5)
       nitro: 3.0.260903-beta
@@ -1874,19 +1658,12 @@ snapshots:
       package-json-from-dist: 1.0.1
       path-scurry: 2.0.2
 
-  h3@2.0.1-rc.22(crossws@0.4.12(srvx@0.11.22)):
-    dependencies:
-      rou3: 0.8.1
-      srvx: 0.11.22
-    optionalDependencies:
-      crossws: 0.4.12(srvx@0.11.22)
-
-  h3@2.0.1-rc.32(crossws@0.4.12(srvx@0.11.22))(ocache@0.3.0):
+  h3@2.0.1-rc.32(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0):
     dependencies:
       rou3: 0.9.2
       srvx: 1.0.5
     optionalDependencies:
-      crossws: 0.4.12(srvx@0.11.22)
+      crossws: 0.4.12(srvx@1.0.5)
       ocache: 0.3.0
 
   hookable@6.1.2: {}
@@ -1970,63 +1747,13 @@ snapshots:
 
   nf3@0.3.24: {}
 
-  nitro@3.0.260610-beta(lru-cache@11.5.3)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)):
-    dependencies:
-      consola: 3.4.2
-      crossws: 0.4.12(srvx@0.11.22)
-      db0: 0.3.4
-      env-runner: 0.1.16
-      h3: 2.0.1-rc.22(crossws@0.4.12(srvx@0.11.22))
-      hookable: 6.1.2
-      nf3: 0.3.24
-      ocache: 0.1.5
-      ofetch: 2.0.0-alpha.3
-      ohash: 2.0.12
-      rolldown: 1.2.9
-      srvx: 0.11.22
-      unenv: 2.0.0-rc.24
-      unstorage: 2.0.0-alpha.7(db0@0.3.4)(lru-cache@11.5.3)(ofetch@2.0.0-alpha.3)
-    optionalDependencies:
-      vite: 8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)
-    transitivePeerDependencies:
-      - '@azure/app-configuration'
-      - '@azure/cosmos'
-      - '@azure/data-tables'
-      - '@azure/identity'
-      - '@azure/keyvault-secrets'
-      - '@azure/storage-blob'
-      - '@capacitor/preferences'
-      - '@deno/kv'
-      - '@electric-sql/pglite'
-      - '@libsql/client'
-      - '@netlify/blobs'
-      - '@netlify/runtime'
-      - '@planetscale/database'
-      - '@upstash/redis'
-      - '@vercel/blob'
-      - '@vercel/functions'
-      - '@vercel/kv'
-      - aws4fetch
-      - better-sqlite3
-      - chokidar
-      - drizzle-orm
-      - idb-keyval
-      - ioredis
-      - lru-cache
-      - miniflare
-      - mongodb
-      - mysql2
-      - sqlite3
-      - uploadthing
-      - wrangler
-
   nitro@3.0.260903-beta:
     dependencies:
       consola: 3.4.2
       crossws: 0.4.12(srvx@1.0.5)
       db0: 0.4.1
       env-runner: 0.2.3
-      h3: 2.0.1-rc.32(crossws@0.4.12(srvx@0.11.22))(ocache@0.3.0)
+      h3: 2.0.1-rc.32(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
       hookable: 6.1.2
       nf3: 0.3.24
       ocache: 0.3.0
@@ -2038,15 +1765,7 @@ snapshots:
 
   obug@2.2.1: {}
 
-  ocache@0.1.5:
-    dependencies:
-      ohash: 2.0.12
-
   ocache@0.3.0: {}
-
-  ofetch@2.0.0-alpha.3: {}
-
-  ohash@2.0.12: {}
 
   openapi-fetch@0.14.1:
     dependencies:
@@ -2144,8 +1863,6 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.2.9
       '@rolldown/binding-win32-x64-msvc': 1.2.9
 
-  rou3@0.8.1: {}
-
   rou3@0.9.2: {}
 
   shebang-command@2.0.0:
@@ -2159,8 +1876,6 @@ snapshots:
   signal-exit@4.1.0: {}
 
   source-map-js@1.2.1: {}
-
-  srvx@0.11.22: {}
 
   srvx@1.0.5: {}
 
@@ -2208,12 +1923,6 @@ snapshots:
       pathe: 2.0.3
 
   unstorage@2.0.0-alpha.10: {}
-
-  unstorage@2.0.0-alpha.7(db0@0.3.4)(lru-cache@11.5.3)(ofetch@2.0.0-alpha.3):
-    optionalDependencies:
-      db0: 0.3.4
-      lru-cache: 11.5.3
-      ofetch: 2.0.0-alpha.3
 
   vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15):
     dependencies:

@@ -8,7 +8,6 @@ async function open(shell: FakeShell = () => ({}), overrides = {}) {
   const sandbox = await provider.create({ template: "t", timeoutMs: 1000 });
   let now = 0;
   const session = createAliyunSession({
-    id: "session-key",
     sandbox,
     env: () => ({ BASE: "1", SHARED: "base" }),
     timeoutMs: 600_000,

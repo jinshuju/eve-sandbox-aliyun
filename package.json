@@ -1,7 +1,7 @@
 {
   "name": "@jinshuju/eve-sandbox-aliyun",
   "version": "0.2.1",
-  "description": "Aliyun cloud sandbox (FC Agent Sandbox) SandboxBackend for eve agents",
+  "description": "Aliyun cloud sandbox (FC Agent Sandbox) provider for eve agents",
   "keywords": [
     "agent",
     "aliyun",
@@ -38,7 +38,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "smoke": "tsx --env-file=.env.local src/integration/aliyun-backend-smoke.ts",
+    "smoke": "tsx --env-file=.env.local src/integration/aliyun-provider-smoke.ts",
     "sweep": "tsx --env-file=.env.local src/integration/sweep.ts",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
@@ -52,8 +52,8 @@
   "devDependencies": {
     "@types/node": "^26.0.1",
     "ai": "^7.0.44",
-    "eve": "0.63.0",
-    "eve-floor": "npm:eve@0.27.13",
+    "eve": "0.64.1",
+    "eve-floor": "npm:eve@0.64.0",
     "oxfmt": "0.58.0",
     "oxlint": "1.73.0",
     "tsx": "^4.22.4",
@@ -61,7 +61,7 @@
     "vitest": "^4.1.9"
   },
   "peerDependencies": {
-    "eve": ">=0.27.0 <1.0.0"
+    "eve": ">=0.64.0 <1.0.0"
   },
   "engines": {
     "node": ">=24.0.0"

@@ -1,4 +1,4 @@
-/** Live working directory of every eve sandbox, on every backend. */
+/** Live working directory of every eve sandbox, with every provider. */
 export const WORKSPACE_ROOT = "/workspace";
 
 const MODEL_HOME_ROOT = "$HOME";

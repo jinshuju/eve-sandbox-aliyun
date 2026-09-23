@@ -1,3 +1,4 @@
 node_modules
 .eve
 .env*
+.output

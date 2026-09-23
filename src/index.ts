@@ -1,15 +1,22 @@
-import type { SandboxBackend } from "eve/sandbox";
-import { createAliyunSandboxBackend } from "./backend.js";
-import type { AliyunConnectionOptions } from "./connection.js";
-import { resolveAliyunConnection } from "./connection.js";
-import { createE2bProvider } from "./e2b-provider.js";
-import type { AliyunSandboxCreateOptions, AliyunSandboxUseOptions } from "./options.js";
+import type { MutableNetworkSandboxSession } from "eve/sandbox";
+import { defineSandboxProvider } from "eve/sandbox/provider";
+import { type AliyunSandboxEnvironmentOptions, createAliyunEnvironment } from "./environment.js";
+import {
+  ALIYUN_PROVIDER_NAME,
+  type AliyunSandboxPreparedArtifact,
+  type AliyunSandboxSessionState,
+} from "./implementation.js";
+import type { AliyunSandboxOpenOptions } from "./options.js";
 
+export type { AliyunSandboxEnvironmentOptions } from "./environment.js";
 export {
-  ALIYUN_BACKEND_NAME,
-  createAliyunSandboxBackend,
-  type CreateAliyunSandboxBackendInput,
-} from "./backend.js";
+  ALIYUN_PROVIDER_NAME,
+  createAliyunSandboxImplementation,
+  type AliyunSandboxImplementation,
+  type AliyunSandboxPreparedArtifact,
+  type AliyunSandboxSessionState,
+  type CreateAliyunSandboxImplementationInput,
+} from "./implementation.js";
 export { resolveAliyunConnection, type AliyunConnectionOptions } from "./connection.js";
 export { createE2bProvider, type AliyunConnection } from "./e2b-provider.js";
 export { translateNetworkPolicy } from "./network-policy.js";
@@ -17,7 +24,7 @@ export {
   DEFAULT_TEMPLATE,
   DEFAULT_TIMEOUT_MS,
   type AliyunSandboxCreateOptions,
-  type AliyunSandboxUseOptions,
+  type AliyunSandboxOpenOptions,
 } from "./options.js";
 export type {
   Provider,
@@ -27,32 +34,29 @@ export type {
   ProviderSandbox,
 } from "./provider.js";
 
-export interface AliyunSandboxOptions extends AliyunSandboxCreateOptions, AliyunConnectionOptions {
-  /** Environment the connection is read from. Defaults to `process.env`. */
-  readonly connectionEnv?: Readonly<Record<string, string | undefined>>;
-}
-
 /**
- * Creates the Aliyun cloud sandbox (FC Agent Sandbox) backend for
- * `defineSandbox({ backend })`.
+ * The Aliyun cloud sandbox (FC Agent Sandbox) provider for eve.
  *
  * ```ts
  * // agent/sandbox.ts
  * import { defineSandbox } from "eve/sandbox";
- * import { aliyun } from "@jinshuju/eve-sandbox-aliyun";
+ * import { AliyunSandbox } from "@jinshuju/eve-sandbox-aliyun";
  *
- * export default defineSandbox({ backend: aliyun() });
+ * export const environment = AliyunSandbox.environment();
+ * export default defineSandbox(() => environment.open());
  * ```
  *
- * Credentials are resolved on first use rather than here, so the sandbox
- * module can be imported at build time before the environment is populated.
+ * Credentials are resolved on first use rather than when the environment is
+ * created, so the sandbox module can be imported at build time before the
+ * environment is populated.
  */
-export function aliyun(
-  options: AliyunSandboxOptions = {},
-): SandboxBackend<AliyunSandboxUseOptions, AliyunSandboxUseOptions> {
-  return createAliyunSandboxBackend({
-    createOptions: options,
-    provider: () =>
-      createE2bProvider({ connection: resolveAliyunConnection(options, options.connectionEnv) }),
-  });
-}
+export const AliyunSandbox = defineSandboxProvider<
+  AliyunSandboxEnvironmentOptions,
+  AliyunSandboxOpenOptions,
+  AliyunSandboxPreparedArtifact,
+  AliyunSandboxSessionState,
+  MutableNetworkSandboxSession
+>({
+  name: ALIYUN_PROVIDER_NAME,
+  environment: (options) => createAliyunEnvironment(options),
+});

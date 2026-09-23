@@ -6,7 +6,7 @@
  *   pnpm sweep                                list only
  *   pnpm sweep --kill                         destroy smoke runs and template builds
  *   pnpm sweep --kill --older-than 60         ...started at least 60 minutes ago
- *   pnpm sweep --kill --tag agent=my-agent    also sandboxes carrying that eve tag
+ *   pnpm sweep --kill --tag agent=my-agent    also sandboxes carrying that metadata label
  *
  * Session sandboxes are never touched unless a `--tag` names them.
  */
