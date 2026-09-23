@@ -1,6 +1,6 @@
 /**
- * The narrow slice of the cloud sandbox API this backend depends on. The E2B
- * SDK sits behind it (`src/e2b-provider.ts`) so backend logic is unit-testable
+ * The narrow slice of the cloud sandbox API this package depends on. The E2B
+ * SDK sits behind it (`src/e2b-provider.ts`) so provider logic is unit-testable
  * without creating cloud resources.
  */
 

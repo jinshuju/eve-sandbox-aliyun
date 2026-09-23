@@ -1,6 +1,6 @@
 import { shellQuote } from "./session.js";
 
-/** Backend-owned scratch directory inside the sandbox; excluded from archives. */
+/** Provider-owned scratch directory inside the sandbox; excluded from archives. */
 export const STATE_DIR = "/var/tmp/.eve-aliyun";
 export const MARKER_PATH = `${STATE_DIR}/base-marker`;
 export const ARCHIVE_PATH = `${STATE_DIR}/state.tgz`;

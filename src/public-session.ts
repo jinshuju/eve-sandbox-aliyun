@@ -1,19 +1,18 @@
 import type {
+  MutableNetworkSandboxSession,
   SandboxNetworkPolicy,
   SandboxProcess,
   SandboxReadFileOptions,
-  SandboxSession,
   SandboxSpawnOptions,
   SandboxWriteFileOptions,
 } from "eve/sandbox";
 
 /**
- * The byte-oriented primitives a backend has to provide. Same shape as eve's
+ * The byte-oriented primitives a provider has to supply. Same shape as eve's
  * (unexported) `InternalSandboxSession`: `readFile`/`writeFile`/`removePath`
  * receive already-resolved paths.
  */
 export interface InternalSession {
-  readonly id: string;
   resolvePath(path: string): string;
   spawn(options: SandboxSpawnOptions): Promise<SandboxProcess>;
   readFile(options: SandboxReadFileOptions): Promise<ReadableStream<Uint8Array> | null>;
@@ -95,16 +94,16 @@ function encodeString(text: string, encoding: string): Uint8Array {
 }
 
 /**
- * Builds eve's public {@link SandboxSession} on top of backend primitives,
- * with the same semantics as eve's own builder so authored code behaves
- * identically on this backend.
+ * Builds eve's public sandbox session on top of provider primitives, with the
+ * same semantics as eve's own builder so authored code behaves identically on
+ * this provider. The firewall is mutable here, so the session always carries
+ * `setNetworkPolicy`.
  */
 export function buildPublicSession(
   internal: InternalSession,
   setNetworkPolicy: NetworkPolicySetter,
-): SandboxSession {
+): MutableNetworkSandboxSession {
   return {
-    id: internal.id,
     resolvePath: (path) => internal.resolvePath(path),
     setNetworkPolicy,
 

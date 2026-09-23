@@ -30,7 +30,7 @@ function createOutputChannel() {
 /**
  * Adapts a provider command to eve's {@link SandboxProcess}. The provider
  * delivers output as decoded strings, so bytes are re-encoded as UTF-8 — the
- * same model eve's own Vercel backend uses. Byte-exact data belongs in files.
+ * same model eve's own Vercel provider uses. Byte-exact data belongs in files.
  */
 export async function startSandboxProcess(
   input: StartSandboxProcessInput,

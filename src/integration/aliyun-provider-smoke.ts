@@ -6,23 +6,46 @@
  * It creates billable sandboxes. Every sandbox it creates carries the run id in
  * its metadata and is destroyed in `finally`, and the run ends by listing what
  * is left so a leak is visible rather than silent.
+ *
+ * It drives the provider implementation the way eve does — prepare at build
+ * time, start once per session, resume on every later access — without an eve
+ * runtime around it.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { SandboxBackendHandle } from "eve/sandbox";
-import { aliyun, createE2bProvider, resolveAliyunConnection } from "../index.js";
+import { createAliyunEnvironment } from "../environment.js";
+import { createE2bProvider, resolveAliyunConnection } from "../index.js";
+import { prepareContext, sessionContext } from "../testing/eve-context.js";
 
 const runId = `smoke-${randomUUID().slice(0, 8)}`;
-const runtimeContext = { appRoot: process.cwd() };
 const provider = createE2bProvider({ connection: resolveAliyunConnection({}) });
 const cacheDir = await mkdtemp(path.join(tmpdir(), "eve-aliyun-smoke-"));
-const backend = aliyun({ cacheDir, timeoutMs: 10 * 60_000, env: { SMOKE_ENV: "from-backend" } });
-const templateKey = `${runId}-template`;
-const sessionKey = `${runId}-session`;
-const tags = { smokeRun: runId };
+const implementation = createAliyunEnvironment({
+  cacheDir,
+  timeoutMs: 10 * 60_000,
+  env: { SMOKE_ENV: "from-environment" },
+  metadata: { smokeRun: runId },
+  async prepare(sandbox) {
+    const setup = await sandbox.run({
+      command: [
+        "set -e",
+        "sudo apt-get update -qq",
+        "sudo apt-get install -y -qq jq >/dev/null",
+        `printf '#!/bin/sh\\necho eve-tool-ok\\n' | sudo tee /usr/local/bin/eve-tool >/dev/null`,
+        "sudo chmod +x /usr/local/bin/eve-tool",
+      ].join("\n"),
+    });
+    assert.equal(setup.exitCode, 0, setup.stderr || setup.stdout);
+  },
+});
+const context = sessionContext(`${runId}-session`);
+const seedFiles = [
+  { path: "/workspace/seed/schema.sql", content: "create table t;\n" },
+  { path: "$HOME/.agents/skills/demo/SKILL.md", content: Buffer.from("# demo skill\n") },
+];
 
 async function check(name: string, fn: () => Promise<void>): Promise<void> {
   const startedAt = Date.now();
@@ -30,45 +53,34 @@ async function check(name: string, fn: () => Promise<void>): Promise<void> {
   console.log(`  ok  ${name} (${Date.now() - startedAt} ms)`);
 }
 
-const sandboxIdOf = async (handle: SandboxBackendHandle<never>) =>
-  (await handle.captureState()).metadata.sandboxId as string;
+const sandboxesOf = (sessionKey: string) => provider.findByMetadata({ eveSessionKey: sessionKey });
 
 try {
-  await check("prewarm captures a template, including root-level changes", async () => {
-    const result = await backend.prewarm({
-      templateKey,
-      runtimeContext,
-      log: (message) => console.log(`      ${message}`),
-      seedFiles: [
-        { path: "seed/schema.sql", content: "create table t;\n" },
-        { path: "$HOME/.agents/skills/demo/SKILL.md", content: Buffer.from("# demo skill\n") },
-      ],
-      async bootstrap({ use }) {
-        const sandbox = await use();
-        const setup = await sandbox.run({
-          command: [
-            "set -e",
-            "sudo apt-get update -qq",
-            "sudo apt-get install -y -qq jq >/dev/null",
-            `printf '#!/bin/sh\\necho eve-tool-ok\\n' | sudo tee /usr/local/bin/eve-tool >/dev/null`,
-            "sudo chmod +x /usr/local/bin/eve-tool",
-          ].join("\n"),
-        });
-        assert.equal(setup.exitCode, 0, setup.stderr || setup.stdout);
-      },
-    });
-    assert.deepEqual(result, { reused: false });
+  const artifact = await implementation.prepare(
+    prepareContext({ seedFiles, log: (message) => console.log(`      ${message}`) }),
+  );
+
+  await check("prepare captured a template, including root-level changes", async () => {
+    assert.match(artifact.archive ?? "", /\.tgz$/);
   });
 
-  await check("prewarm reuses the captured template", async () => {
-    assert.deepEqual(await backend.prewarm({ templateKey, runtimeContext, seedFiles: [] }), {
-      reused: true,
-    });
+  await check("prepare reuses the captured template", async () => {
+    const messages: string[] = [];
+    const again = await implementation.prepare(
+      prepareContext({ seedFiles, log: (message) => messages.push(message) }),
+    );
+    assert.deepEqual(again, artifact);
+    assert.match(messages.at(-1) ?? "", /^reusing /);
   });
 
-  let handle = await backend.create({ templateKey, sessionKey, runtimeContext, tags });
-  const firstSandboxId = await sandboxIdOf(handle as never);
-  let { session } = handle;
+  const started = await implementation.start(
+    context,
+    { env: { SMOKE_TOKEN: "per session" } },
+    artifact,
+  );
+  const { state } = started;
+  let handle = started.handle;
+  let session = handle.sandbox;
 
   await check(
     "commands run as the unprivileged user, in /workspace, through a login shell",
@@ -81,7 +93,7 @@ try {
         "user",
         "/workspace",
         "login",
-        "from-backend",
+        "from-environment",
         "sudo-ok",
       ]);
     },
@@ -177,52 +189,32 @@ try {
     },
   );
 
-  await check("use({ env }) reaches later commands and the next turn's handle", async () => {
-    await handle.useSessionFn({ env: { SMOKE_TOKEN: "per session" } });
+  await check("open({ env }) reaches commands and the next resume's handle", async () => {
     assert.equal(
       (await session.run({ command: 'printf %s "$SMOKE_TOKEN"' })).stdout,
       "per session",
     );
-    const next = await backend.create({
-      templateKey,
-      sessionKey,
-      runtimeContext,
-      tags,
-      existingMetadata: (await handle.captureState()).metadata,
-    });
-    const result = await next.session.run({ command: 'printf %s "$SMOKE_TOKEN"' });
+    const next = await implementation.resume(context, artifact, state);
+    const result = await next.sandbox.run({ command: 'printf %s "$SMOKE_TOKEN"' });
     assert.equal(result.stdout, "per session");
   });
 
-  await check("create reattaches to the live sandbox", async () => {
+  await check("resume reattaches to the live sandbox", async () => {
     await session.writeTextFile({ path: "work.txt", content: "in progress\n" });
-    const again = await backend.create({
-      templateKey,
-      sessionKey,
-      runtimeContext,
-      tags,
-      existingMetadata: (await handle.captureState()).metadata,
-    });
-    assert.equal(await sandboxIdOf(again as never), firstSandboxId);
-    const byKeyOnly = await backend.create({ templateKey, sessionKey, runtimeContext, tags });
-    assert.equal(await sandboxIdOf(byKeyOnly as never), firstSandboxId);
+    const again = await implementation.resume(context, artifact, state);
+    assert.equal(await again.sandbox.readTextFile({ path: "work.txt" }), "in progress\n");
+    assert.deepEqual(await sandboxesOf(state.sessionKey), [state.sandboxId]);
   });
 
   await check("stop releases the compute and the session resumes with its state", async () => {
-    await handle.stop();
+    await handle.onSessionStop();
     const stale = session;
     await assert.rejects(async () => await stale.run({ command: "echo late" }), /stopped/);
-    handle = await backend.create({
-      templateKey,
-      sessionKey,
-      runtimeContext,
-      tags,
-      existingMetadata: (await handle.captureState()).metadata,
-    });
-    session = handle.session;
-    const resumedId = await sandboxIdOf(handle as never);
+    handle = await implementation.resume(context, artifact, state);
+    session = handle.sandbox;
+    const [resumedId] = await sandboxesOf(state.sessionKey);
     console.log(
-      `      ${resumedId === firstSandboxId ? "resumed by pause" : "restored from checkpoint"}`,
+      `      ${resumedId === state.sandboxId ? "resumed by pause" : "restored from checkpoint"}`,
     );
     assert.equal(await session.readTextFile({ path: "work.txt" }), "in progress\n");
     assert.equal(
@@ -233,17 +225,26 @@ try {
     assert.equal(result.stdout, "eve-tool-ok\n7\n");
   });
 
+  await check("a sandbox lost to the provider is replaced, keeping the session's env", async () => {
+    const [liveId] = await sandboxesOf(state.sessionKey);
+    assert.ok(liveId, "the session has a live sandbox");
+    await (await provider.connect(liveId))?.kill();
+    handle = await implementation.resume(context, artifact, state);
+    session = handle.sandbox;
+    const [replacementId] = await sandboxesOf(state.sessionKey);
+    assert.ok(replacementId !== undefined && replacementId !== liveId, "a new sandbox");
+    const result = await session.run({ command: 'eve-tool; printf %s "$SMOKE_TOKEN"' });
+    assert.equal(result.stdout, "eve-tool-ok\nper session");
+  });
+
   await check("delete destroys the sandbox for good", async () => {
-    await handle.delete();
-    assert.deepEqual(await provider.findByMetadata({ eveSessionKey: sessionKey }), []);
+    await handle.onSessionDelete();
+    assert.deepEqual(await sandboxesOf(state.sessionKey), []);
   });
 
   console.log("ALIYUN SMOKE OK");
 } finally {
-  const leaked = [
-    ...(await provider.findByMetadata({ eveSessionKey: sessionKey })),
-    ...(await provider.findByMetadata({ eveTemplateKey: templateKey })),
-  ];
+  const leaked = await provider.findByMetadata({ smokeRun: runId });
   for (const sandboxId of leaked) await (await provider.connect(sandboxId))?.kill();
   await rm(cacheDir, { force: true, recursive: true });
   const remaining = await provider.findByMetadata({});

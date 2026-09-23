@@ -20,7 +20,6 @@ function memorySession(files: Record<string, Uint8Array> = {}) {
   const removed: unknown[] = [];
   const spawned: unknown[] = [];
   const internal: InternalSession = {
-    id: "session-1",
     resolvePath: resolveWorkspacePath,
     async spawn(options) {
       spawned.push(options);
@@ -57,11 +56,6 @@ describe("buildPublicSession", () => {
       stdout: "out",
       stderr: "err",
     });
-  });
-
-  test("exposes the internal id", () => {
-    const session = buildPublicSession(memorySession().internal, async () => {});
-    expect(session.id).toBe("session-1");
   });
 
   test("readTextFile anchors relative paths to /workspace", async () => {

@@ -8,7 +8,6 @@ import { streamToBytes } from "./public-session.js";
 export const DEFAULT_KEEP_ALIVE_INTERVAL_MS = 60_000;
 
 export interface CreateAliyunSessionInput {
-  readonly id: string;
   readonly sandbox: ProviderSandbox;
   /** Environment applied to every command, read at spawn time; per-call `env` wins. */
   readonly env: () => Readonly<Record<string, string>>;
@@ -18,7 +17,7 @@ export interface CreateAliyunSessionInput {
   readonly now?: () => number;
 }
 
-/** Internal session plus the lifecycle hook the backend handle needs. */
+/** Internal session plus the lifecycle hook the provider handle needs. */
 export type AliyunSession = InternalSession & {
   /** Kills every live process and closes the session to new commands. Idempotent. */
   killAll(): Promise<void>;
@@ -74,7 +73,6 @@ export function createAliyunSession(input: CreateAliyunSessionInput): AliyunSess
   }
 
   return {
-    id: input.id,
     resolvePath: resolveWorkspacePath,
     spawn,
 

@@ -5,9 +5,10 @@ agents; user-facing behavior belongs in `README.md`.
 
 ## What this repository is
 
-One published package, `@jinshuju/eve-sandbox-aliyun`: an implementation of eve's
-`SandboxBackend` interface on Aliyun's cloud sandbox (FC Agent Sandbox), which
-speaks the E2B protocol.
+One published package, `@jinshuju/eve-sandbox-aliyun`: an eve sandbox provider
+(`defineSandboxProvider`, eve >= 0.64) on Aliyun's cloud sandbox (FC Agent
+Sandbox), which speaks the E2B protocol. 0.2.x implemented the `SandboxBackend`
+interface eve 0.64 removed.
 
 ## Start here
 
@@ -19,6 +20,14 @@ notes**. Several non-obvious behaviors are deliberate:
   package managers restore old mtimes on the files they install.
 - `stop()` tries pause, and falls back to checkpoint-then-destroy. Pause is an
   allow-listed account feature; the fallback is what most accounts get.
+- eve persists the session state `start()` returns once and never updates it.
+  So the sandbox id in it is only a first guess: a replacement sandbox is found
+  by the `eveSessionKey` metadata, which is unique per `start()` so an orphan
+  from a crashed start is never adopted. Anything a replacement needs again
+  (`open()`'s env and network policy) must be in that state.
+- `resume()` replaces a sandbox that is gone (checkpoint, else template) where
+  eve's built-in providers fail. On an account without pause the idle timeout
+  is how sandboxes normally end; failing there would break every idle session.
 - Unsupported network policy shapes throw. Never degrade a policy silently —
   widening egress or dropping a header rule is a security bug, not a fallback.
 
@@ -68,15 +77,16 @@ Moving the pin means proving a newer SDK works against the live service first.
 
 ## The eve peer range
 
-`peerDependencies.eve` is `>=0.27.0 <1.0.0`, wide on purpose. Three mechanisms
+`peerDependencies.eve` is `>=0.64.0 <1.0.0`: the floor is the release that
+introduced sandbox providers, the ceiling is wide on purpose. Three mechanisms
 keep it honest:
 
-1. `src/eve-compatibility.test.ts` typechecks the backend against the range's
+1. `src/eve-compatibility.test.ts` typechecks the provider against the range's
    floor (`eve-floor`) and the newest verified eve. These are **type-level**
    tests, so `pnpm typecheck` must run in CI, not just `pnpm test`.
 2. The CI `pack` job imports the tarball against both ends of the range —
-   `dist/backend.js` imports a _value_ from `eve/sandbox`, so a version that
-   typechecks could still fail to load.
+   `dist/index.js` imports a _value_ (`defineSandboxProvider`) from
+   `eve/sandbox/provider`, so a version that typechecks could still fail to load.
 3. `.github/workflows/eve-drift.yml` re-runs the suite against `eve@latest` on a
    schedule and opens an issue on failure. It is the only thing covering the
    `<1.0.0` ceiling.
@@ -92,7 +102,7 @@ devDependency together; a test asserts they name the same minor line.
 - The cloud sits behind the `Provider` interface (`src/provider.ts`). Unit tests
   use the in-memory fake in `src/testing/`, so they create nothing and run
   anywhere. A test that needs the real service belongs in
-  `src/integration/aliyun-backend-smoke.ts`.
+  `src/integration/aliyun-provider-smoke.ts`.
 - `src/testing/` is excluded from the published build. Keep test-only code there.
 - Never commit secrets. `.env*` is ignored; `.env.example` holds names only.
   This repository is public, history included: a secret that reaches any pushed
