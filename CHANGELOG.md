@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.2.1...v0.3.0) (2026-09-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* requires eve >=0.64.0. aliyun() is replaced by AliyunSandbox.environment(options); bootstrap becomes the environment's prepare option, and onSession's use({ env, networkPolicy }) becomes environment.open({ env, networkPolicy }) in defineSandbox's selector. revalidationKey is gone. Sessions created with 0.2.x cannot be resumed.
+
+### Features
+
+* port to eve 0.64's sandbox provider API ([1e8e20c](https://github.com/jinshuju/eve-sandbox-aliyun/commit/1e8e20ce70aebdf91490645651587c4eb8616a18))
+
 ## [0.2.1](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.2.0...v0.2.1) (2026-09-21)
 
 
