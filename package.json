@@ -1,6 +1,6 @@
 {
   "name": "@jinshuju/eve-sandbox-aliyun",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Aliyun cloud sandbox (FC Agent Sandbox) provider for eve agents",
   "keywords": [
     "agent",

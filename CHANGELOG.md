@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.3.0...v0.3.1) (2026-09-26)
+
+
+### Fixes
+
+* declare the provider's own session type for eve &gt;=0.66 ([#17](https://github.com/jinshuju/eve-sandbox-aliyun/issues/17)) ([0a90e42](https://github.com/jinshuju/eve-sandbox-aliyun/commit/0a90e423db7ae98e1a9cc0159b3d7439c5b75ce7))
+
 ## [0.3.0](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.2.1...v0.3.0) (2026-09-23)
 
 
