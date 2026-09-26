@@ -449,7 +449,7 @@ describe("network policy", () => {
   test("prepare can tighten the policy for the rest of the template build", async () => {
     const { provider, implementation } = setup(undefined, {
       async prepare(sandbox) {
-        await sandbox.setNetworkPolicy?.("deny-all");
+        await sandbox.setNetworkPolicy("deny-all");
       },
     });
 

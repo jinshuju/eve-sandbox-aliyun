@@ -1,8 +1,8 @@
 import type {
-  MutableNetworkSandboxSession,
   SandboxNetworkPolicy,
   SandboxProcess,
   SandboxReadFileOptions,
+  SandboxSession,
   SandboxSpawnOptions,
   SandboxWriteFileOptions,
 } from "eve/sandbox";
@@ -26,6 +26,17 @@ export interface InternalSession {
 }
 
 export type NetworkPolicySetter = (policy: SandboxNetworkPolicy) => Promise<void>;
+
+/**
+ * The session this provider hands to authored code. Its firewall is mutable, so
+ * `setNetworkPolicy` is always there. eve 0.64 and 0.65 spelled this shape
+ * `MutableNetworkSandboxSession`; 0.66 dropped that alias and asks each provider
+ * to declare its own session type, as eve's docker provider does.
+ */
+export interface AliyunSandboxSession extends SandboxSession {
+  /** Applies a firewall policy to the live sandbox. */
+  setNetworkPolicy(policy: SandboxNetworkPolicy): Promise<void>;
+}
 
 export async function streamToBytes(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
@@ -102,7 +113,7 @@ function encodeString(text: string, encoding: string): Uint8Array {
 export function buildPublicSession(
   internal: InternalSession,
   setNetworkPolicy: NetworkPolicySetter,
-): MutableNetworkSandboxSession {
+): AliyunSandboxSession {
   return {
     resolvePath: (path) => internal.resolvePath(path),
     setNetworkPolicy,

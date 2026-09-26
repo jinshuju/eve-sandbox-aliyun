@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { MutableNetworkSandboxSession, SandboxSession } from "eve/sandbox";
+import type { SandboxSession } from "eve/sandbox";
 import type {
   SandboxPreparedArtifact,
   SandboxProviderHandle,
@@ -27,7 +27,7 @@ import {
 import { translateNetworkPolicy } from "./network-policy.js";
 import { resolveSeedPath } from "./paths.js";
 import type { Provider, ProviderNetworkConfig, ProviderSandbox } from "./provider.js";
-import { buildPublicSession, streamToBytes } from "./public-session.js";
+import { type AliyunSandboxSession, buildPublicSession, streamToBytes } from "./public-session.js";
 import { createAliyunSession } from "./session.js";
 
 /**
@@ -71,7 +71,7 @@ export type AliyunSandboxImplementation = SandboxProviderImplementation<
   AliyunSandboxOpenOptions,
   AliyunSandboxPreparedArtifact,
   AliyunSandboxSessionState,
-  MutableNetworkSandboxSession
+  AliyunSandboxSession
 >;
 
 export interface CreateAliyunSandboxImplementationInput {
@@ -346,7 +346,7 @@ export function createAliyunSandboxImplementation(
     live: ProviderSandbox,
     state: AliyunSandboxSessionState,
     checkpointPath: string,
-  ): SandboxProviderHandle<MutableNetworkSandboxSession> {
+  ): SandboxProviderHandle<AliyunSandboxSession> {
     const { internal, session } = openSession(live, state.env);
     let released: Promise<void> | undefined;
     const releaseCompute = () =>
