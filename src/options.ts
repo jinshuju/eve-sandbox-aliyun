@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { SandboxNetworkPolicy, SandboxSession } from "eve/sandbox";
+import type { SandboxNetworkPolicy } from "eve/sandbox";
+import type { AliyunSandboxSession } from "./public-session.js";
 
 export const DEFAULT_TEMPLATE = "code-interpreter-v1";
 /** Same default lifetime as eve's Vercel provider. */
@@ -28,7 +29,7 @@ export interface AliyunSandboxCreateOptions {
    * the seed files are written. What it leaves on the filesystem becomes the
    * template archive.
    */
-  readonly prepare?: (sandbox: SandboxSession) => Promise<void> | void;
+  readonly prepare?: (sandbox: AliyunSandboxSession) => Promise<void> | void;
 }
 
 /** Options accepted by `environment.open()`, once per durable session. */
@@ -52,7 +53,7 @@ export interface ResolvedAliyunSandboxOptions {
   readonly cacheDir: string | null;
   readonly networkPolicy: SandboxNetworkPolicy;
   readonly metadata: Readonly<Record<string, string>>;
-  readonly prepare: ((sandbox: SandboxSession) => Promise<void> | void) | null;
+  readonly prepare: ((sandbox: AliyunSandboxSession) => Promise<void> | void) | null;
 }
 
 export function resolveAliyunSandboxOptions(

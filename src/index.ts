@@ -1,4 +1,3 @@
-import type { MutableNetworkSandboxSession } from "eve/sandbox";
 import { defineSandboxProvider } from "eve/sandbox/provider";
 import { type AliyunSandboxEnvironmentOptions, createAliyunEnvironment } from "./environment.js";
 import {
@@ -7,6 +6,7 @@ import {
   type AliyunSandboxSessionState,
 } from "./implementation.js";
 import type { AliyunSandboxOpenOptions } from "./options.js";
+import type { AliyunSandboxSession } from "./public-session.js";
 
 export type { AliyunSandboxEnvironmentOptions } from "./environment.js";
 export {
@@ -26,6 +26,7 @@ export {
   type AliyunSandboxCreateOptions,
   type AliyunSandboxOpenOptions,
 } from "./options.js";
+export type { AliyunSandboxSession } from "./public-session.js";
 export type {
   Provider,
   ProviderCommand,
@@ -55,7 +56,7 @@ export const AliyunSandbox = defineSandboxProvider<
   AliyunSandboxOpenOptions,
   AliyunSandboxPreparedArtifact,
   AliyunSandboxSessionState,
-  MutableNetworkSandboxSession
+  AliyunSandboxSession
 >({
   name: ALIYUN_PROVIDER_NAME,
   environment: (options) => createAliyunEnvironment(options),

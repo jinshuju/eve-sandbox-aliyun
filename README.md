@@ -220,6 +220,11 @@ surface is one small interface — and `src/eve-compatibility.test.ts` typecheck
 against both the range's floor and the newest verified release, so `pnpm typecheck` is part of the
 contract.
 
+The session `prepare(sandbox)` and authored code receive is `AliyunSandboxSession`: eve's
+`SandboxSession` plus `setNetworkPolicy`, since this provider's firewall is mutable. eve 0.64 and
+0.65 exported that shape as `MutableNetworkSandboxSession`; 0.66 removed it and has each provider
+declare its own, so import the type from this package rather than from `eve/sandbox`.
+
 ### Migrating from 0.2
 
 | 0.2 (eve `<0.64`)                               | 0.3 (eve `>=0.64`)                                               |

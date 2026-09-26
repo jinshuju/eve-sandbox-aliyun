@@ -6,15 +6,13 @@ import {
   defineSandboxProvider as defineFloorProvider,
   type SandboxProviderImplementation as FloorImplementation,
 } from "eve-floor/sandbox/provider";
-import type {
-  MutableNetworkSandboxSession as LatestSession,
-  SandboxEnvironment as LatestEnvironment,
-} from "eve/sandbox";
+import type { SandboxEnvironment as LatestEnvironment } from "eve/sandbox";
 import type { SandboxProviderImplementation as LatestImplementation } from "eve/sandbox/provider";
 import { type AliyunSandboxEnvironmentOptions, createAliyunEnvironment } from "./environment.js";
 import type { AliyunSandboxPreparedArtifact, AliyunSandboxSessionState } from "./implementation.js";
 import { AliyunSandbox } from "./index.js";
 import type { AliyunSandboxOpenOptions } from "./options.js";
+import type { AliyunSandboxSession as LatestSession } from "./public-session.js";
 
 /**
  * The peer range is `>=floor <1.0.0`. These are type-level tests — the
