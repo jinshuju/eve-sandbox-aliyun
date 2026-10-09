@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.3.1...v0.4.0) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* requires eve >=0.75.0. Use 0.3.x with eve >=0.64 <0.75.
+
+### Features
+
+* support eve 0.75 sandbox hooks and clean up on session end ([7a825e0](https://github.com/jinshuju/eve-sandbox-aliyun/commit/7a825e01d7663d6fd233e9acd8861856e6513372))
+
+
+### Fixes
+
+* keep cleaning up when one sandbox fails at session end ([27faac4](https://github.com/jinshuju/eve-sandbox-aliyun/commit/27faac411ad5f23322ba23dbff056cfd0d8eedcb))
+
 ## [0.3.1](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.3.0...v0.3.1) (2026-09-26)
 
 
