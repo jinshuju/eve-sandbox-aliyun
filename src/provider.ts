@@ -62,6 +62,8 @@ export interface Provider {
   connect(sandboxId: string): Promise<ProviderSandbox | null>;
   /** Ids of live sandboxes whose metadata contains every given pair. */
   findByMetadata(metadata: Readonly<Record<string, string>>): Promise<string[]>;
+  /** Destroys a sandbox by id without reconnecting to it. Succeeds when it is already gone. */
+  kill(sandboxId: string): Promise<void>;
 }
 
 /** Complete egress configuration; the provider replaces the previous one wholesale. */

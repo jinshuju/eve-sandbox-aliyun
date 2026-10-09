@@ -308,7 +308,7 @@ describe("handle lifecycle", () => {
     const { handle, state } = await start();
     await handle.sandbox.writeTextFile({ path: "work.txt", content: "in progress" });
 
-    await handle.onSessionStop();
+    await handle.onSandboxStop();
 
     expect(provider.created[0]?.paused).toBe(true);
     expect(provider.created[0]?.killed).toBe(false);
@@ -322,7 +322,7 @@ describe("handle lifecycle", () => {
     const { handle, state } = await start();
     await handle.sandbox.writeTextFile({ path: "work.txt", content: "in progress" });
 
-    await handle.onSessionStop();
+    await handle.onSandboxStop();
 
     expect(provider.created[0]?.killed).toBe(true);
     expect(provider.sandboxes.size).toBe(0);
@@ -336,7 +336,7 @@ describe("handle lifecycle", () => {
     const artifact = await templateWith(implementation);
     const { handle, state } = await start(artifact);
     await handle.sandbox.writeTextFile({ path: "seed.txt", content: "edited" });
-    await handle.onSessionStop();
+    await handle.onSandboxStop();
 
     const resumed = await resume(state, artifact);
 
@@ -351,7 +351,7 @@ describe("handle lifecycle", () => {
     const { handle } = await start();
     const server = await handle.sandbox.spawn({ command: "serve" });
 
-    await handle.onSessionStop();
+    await handle.onSandboxStop();
 
     expect(await server.wait()).toEqual({ exitCode: 137 });
   });
@@ -368,7 +368,7 @@ describe("handle lifecycle", () => {
     const { handle } = await start();
     failCapture = true;
 
-    await expect(handle.onSessionStop()).rejects.toThrow("disk full");
+    await expect(handle.onSandboxStop()).rejects.toThrow("disk full");
     expect(provider.created[0]?.killed).toBe(false);
   });
 
@@ -386,10 +386,10 @@ describe("handle lifecycle", () => {
     const artifact = await templateWith(implementation);
     const first = await start(artifact);
     await first.handle.sandbox.writeTextFile({ path: "work.txt", content: "in progress" });
-    await first.handle.onSessionStop();
+    await first.handle.onSandboxStop();
     const resumed = await resume(first.state, artifact);
 
-    await resumed.onSessionDelete();
+    await resumed.onSandboxDelete();
 
     expect(provider.sandboxes.size).toBe(0);
     expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
@@ -404,10 +404,99 @@ describe("handle lifecycle", () => {
     const abort = new AbortController();
     abort.abort(new Error("cancelled"));
 
-    await expect(handle.onSessionDelete({ abortSignal: abort.signal })).rejects.toThrow(
+    await expect(handle.onSandboxDelete({ abortSignal: abort.signal })).rejects.toThrow(
       "cancelled",
     );
     expect(provider.created[0]?.killed).toBe(false);
+  });
+});
+
+describe("session end", () => {
+  async function endSession(
+    implementation: ReturnType<typeof setup>["implementation"],
+    state: AliyunSandboxSessionState,
+    artifact: AliyunSandboxPreparedArtifact = NO_TEMPLATE,
+  ) {
+    await implementation.onSessionEnd?.(sessionContext(), artifact, state, { reason: "completed" });
+  }
+
+  test("destroys a stopped session's checkpoint without creating a sandbox to do it", async () => {
+    const { provider, implementation, start } = setup();
+    const { handle, state } = await start();
+    await handle.sandbox.writeTextFile({ path: "work.txt", content: "in progress" });
+    await handle.onSandboxStop();
+
+    await endSession(implementation, state);
+
+    expect(provider.created).toHaveLength(1);
+    expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
+  });
+
+  test("destroys a paused sandbox without resuming it first", async () => {
+    const { provider, implementation, start } = setup();
+    provider.pauseSupported = true;
+    const { handle, state } = await start();
+    await handle.onSandboxStop();
+
+    await endSession(implementation, state);
+
+    expect(provider.created[0]?.killed).toBe(true);
+    expect(provider.created[0]?.paused).toBe(true);
+    expect(provider.sandboxes.size).toBe(0);
+  });
+
+  test("destroys a replacement sandbox found by session key", async () => {
+    const { provider, implementation, start, resume } = setup();
+    const { state } = await start();
+    await provider.created[0]?.kill();
+    await resume(state);
+
+    await endSession(implementation, state);
+
+    expect(provider.created).toHaveLength(2);
+    expect(provider.sandboxes.size).toBe(0);
+  });
+
+  test("leaves other sessions' sandboxes alone", async () => {
+    const { provider, implementation, start } = setup();
+    const { state } = await start(NO_TEMPLATE, undefined, "session-1");
+    const other = await start(NO_TEMPLATE, undefined, "session-2");
+
+    await endSession(implementation, state);
+
+    expect([...provider.sandboxes.keys()]).toEqual([other.state.sandboxId]);
+  });
+
+  test("is idempotent, because eve may retry the cleanup step", async () => {
+    const { provider, implementation, start } = setup();
+    const { state } = await start();
+
+    await endSession(implementation, state);
+    await endSession(implementation, state);
+
+    expect(provider.sandboxes.size).toBe(0);
+    expect(provider.created).toHaveLength(1);
+  });
+
+  test("works when the template archive is no longer on this machine", async () => {
+    const { provider, implementation, start } = setup();
+    const artifact = await templateWith(implementation);
+    const { state } = await start(artifact);
+    await rm(path.join(cacheDir, "templates"), { force: true, recursive: true });
+
+    await endSession(implementation, state, artifact);
+
+    expect(provider.sandboxes.size).toBe(0);
+  });
+
+  test("rejects state this provider did not write", async () => {
+    const { implementation } = setup();
+
+    await expect(
+      implementation.onSessionEnd?.(sessionContext(), NO_TEMPLATE, { version: 2 } as never, {
+        reason: "expired",
+      }),
+    ).rejects.toThrow("invalid session state");
   });
 });
 

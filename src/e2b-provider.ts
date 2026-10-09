@@ -24,12 +24,15 @@ export interface E2bSandboxStatic {
     readonly hasNext: boolean;
     nextItems(): Promise<ReadonlyArray<{ readonly sandboxId: string }>>;
   };
+  /** `false` when the sandbox does not exist. */
+  kill(sandboxId: string, options: Record<string, unknown>): Promise<boolean>;
 }
 
 const realSdk: E2bSandboxStatic = {
   create: async (template, options) => await Sandbox.create(template, options),
   connect: async (sandboxId, options) => await Sandbox.connect(sandboxId, options),
   list: (options) => Sandbox.list(options),
+  kill: async (sandboxId, options) => await Sandbox.kill(sandboxId, options),
 };
 
 /** Exit code the provider reports for a process it killed. */
@@ -163,6 +166,10 @@ export function createE2bProvider(input: CreateE2bProviderInput): Provider {
         for (const info of await paginator.nextItems()) ids.push(info.sandboxId);
       }
       return ids;
+    },
+
+    async kill(sandboxId) {
+      await sdk.kill(sandboxId, { ...connection });
     },
   };
 }

@@ -128,6 +128,9 @@ build time, durable sessions opened from it — is rebuilt on what the platform 
   destroyed; the next `resume` restores it into a new sandbox. `sandbox.stop()` rejects on
   failure; shutdown never throws.
 - **delete** destroys the sandbox and its checkpoint. Templates are shared and survive.
+- **session end** (eve's `onSessionEnd`, once a durable session completes, expires or fails)
+  destroys every sandbox carrying the session key and the session's checkpoint. It kills by id, so
+  it never resumes a paused sandbox or creates a replacement just to delete it.
 
 ## Network policy
 
@@ -214,8 +217,10 @@ a `--tag` names them.
 
 ## eve version requirement
 
-`eve` `>=0.64.0 <1.0.0`. eve 0.64 replaced the `SandboxBackend` interface with sandbox providers;
-0.2.x of this package is the one for eve `<0.64`. The ceiling is wide on purpose — the consumed
+`eve` `>=0.75.0 <1.0.0`. eve 0.75 renamed the handle's `onSessionStop`/`onSessionDelete` hooks to
+`onSandboxStop`/`onSandboxDelete` and calls only the new names, so 0.3.x of this package (eve
+`>=0.64 <0.75`) leaks a sandbox every time eve stops or deletes one on 0.75. eve 0.64 replaced the
+`SandboxBackend` interface with sandbox providers; 0.2.x of this package is the one for eve `<0.64`. The ceiling is wide on purpose — the consumed
 surface is one small interface — and `src/eve-compatibility.test.ts` typechecks the provider
 against both the range's floor and the newest verified release, so `pnpm typecheck` is part of the
 contract.

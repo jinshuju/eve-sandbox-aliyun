@@ -189,6 +189,7 @@ export function createAliyunSandboxImplementation(
     create: async (createOptions) => await getProvider().create(createOptions),
     connect: async (sandboxId) => await getProvider().connect(sandboxId),
     findByMetadata: async (metadata) => await getProvider().findByMetadata(metadata),
+    kill: async (sandboxId) => await getProvider().kill(sandboxId),
   };
   function getProvider(): Provider {
     return (resolvedProvider ??=
@@ -371,14 +372,14 @@ export function createAliyunSandboxImplementation(
       // reconnect. Without it the provider can only destroy a sandbox, so the
       // session's filesystem delta is checkpointed locally first and the next
       // resume() restores it into a fresh sandbox.
-      async onSessionStop() {
+      async onSandboxStop() {
         await releaseCompute();
       },
       // Server teardown: eve collects failures itself and must not be blocked.
       async onRuntimeShutdown() {
         await releaseCompute().catch(() => {});
       },
-      async onSessionDelete(deleteOptions) {
+      async onSandboxDelete(deleteOptions) {
         deleteOptions?.abortSignal?.throwIfAborted();
         await internal.killAll();
         await live.kill();
@@ -462,6 +463,21 @@ export function createAliyunSandboxImplementation(
     // template it grew from, or failing that from the template. The last case
     // is the idle timeout on an account without pause: files written after the
     // session started are gone, but its env and network policy are not.
+    // After the session's terminal outcome. Without this hook eve resumes the
+    // session only to delete it, and resume() would create a sandbox when the
+    // recorded one is gone. Killing by id never creates or resumes one, and is
+    // idempotent because eve may retry the step.
+    async onSessionEnd(context, _artifact, stateValue) {
+      const state = requireState(stateValue);
+      const cacheRoot = resolveCacheRoot(context.storagePath, options.cacheDir);
+      const sandboxIds = new Set([
+        state.sandboxId,
+        ...(await provider.findByMetadata({ [SESSION_KEY_METADATA]: state.sessionKey })),
+      ]);
+      for (const sandboxId of sandboxIds) await provider.kill(sandboxId);
+      await rm(resolveSessionCheckpointPath(cacheRoot, state.sessionKey), { force: true });
+    },
+
     async resume(context, artifactValue, stateValue) {
       const artifact = requireArtifact(artifactValue);
       const state = requireState(stateValue);

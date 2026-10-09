@@ -69,6 +69,10 @@ function fakeSdk(overrides: Record<string, unknown> = {}) {
         },
       };
     },
+    async kill(id: string, options: unknown) {
+      calls.push(["kill-by-id", id, options]);
+      return overrides.killFound ?? true;
+    },
   } as unknown as E2bSandboxStatic;
   return { sdk, calls };
 }
@@ -244,5 +248,19 @@ describe("createE2bProvider", () => {
 
     expect(ids).toEqual(["sbx-1", "sbx-2"]);
     expect(calls[0]).toEqual(["list", { ...connection, query: { metadata: { eveSession: "h" } } }]);
+  });
+
+  test("kill destroys a sandbox by id without connecting to it", async () => {
+    const { sdk, calls } = fakeSdk();
+
+    await createE2bProvider({ connection, sdk }).kill("sbx-9");
+
+    expect(calls).toEqual([["kill-by-id", "sbx-9", { ...connection }]]);
+  });
+
+  test("kill succeeds when the sandbox is already gone", async () => {
+    const { sdk } = fakeSdk({ killFound: false });
+
+    await expect(createE2bProvider({ connection, sdk }).kill("sbx-x")).resolves.toBeUndefined();
   });
 });

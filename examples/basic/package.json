@@ -10,8 +10,8 @@
   "dependencies": {
     "@ai-sdk/deepseek": "^3.0.49",
     "@jinshuju/eve-sandbox-aliyun": "link:../..",
-    "ai": "^7.0.44",
-    "eve": "0.64.1",
+    "ai": "^7.0.128",
+    "eve": "0.75.1",
     "zod": "^4.1.8"
   },
   "engines": {

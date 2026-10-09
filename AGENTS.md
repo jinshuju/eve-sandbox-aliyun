@@ -6,7 +6,7 @@ agents; user-facing behavior belongs in `README.md`.
 ## What this repository is
 
 One published package, `@jinshuju/eve-sandbox-aliyun`: an eve sandbox provider
-(`defineSandboxProvider`, eve >= 0.64) on Aliyun's cloud sandbox (FC Agent
+(`defineSandboxProvider`, eve >= 0.75) on Aliyun's cloud sandbox (FC Agent
 Sandbox), which speaks the E2B protocol. 0.2.x implemented the `SandboxBackend`
 interface eve 0.64 removed.
 
@@ -77,8 +77,10 @@ Moving the pin means proving a newer SDK works against the live service first.
 
 ## The eve peer range
 
-`peerDependencies.eve` is `>=0.64.0 <1.0.0`: the floor is the release that
-introduced sandbox providers, the ceiling is wide on purpose. Three mechanisms
+`peerDependencies.eve` is `>=0.75.0 <1.0.0`: the floor is the release that
+renamed the handle's hooks to `onSandboxStop`/`onSandboxDelete` (it calls the
+new names only, so an older provider fails at runtime, not at typecheck) and
+added `onSessionEnd`. The ceiling is wide on purpose. Three mechanisms
 keep it honest:
 
 1. `src/eve-compatibility.test.ts` typechecks the provider against the range's

@@ -207,7 +207,7 @@ try {
   });
 
   await check("stop releases the compute and the session resumes with its state", async () => {
-    await handle.onSessionStop();
+    await handle.onSandboxStop();
     const stale = session;
     await assert.rejects(async () => await stale.run({ command: "echo late" }), /stopped/);
     handle = await implementation.resume(context, artifact, state);
@@ -238,8 +238,21 @@ try {
   });
 
   await check("delete destroys the sandbox for good", async () => {
-    await handle.onSessionDelete();
+    await handle.onSandboxDelete();
     assert.deepEqual(await sandboxesOf(state.sessionKey), []);
+  });
+
+  await check("session end destroys a stopped session without creating a sandbox", async () => {
+    const ended = await implementation.start(context, undefined, artifact);
+    await ended.handle.onSandboxStop();
+    const before = await provider.findByMetadata({ smokeRun: runId });
+    await implementation.onSessionEnd?.(context, artifact, ended.state, { reason: "completed" });
+    assert.deepEqual(await sandboxesOf(ended.state.sessionKey), []);
+    const after = await provider.findByMetadata({ smokeRun: runId });
+    assert.ok(
+      after.every((sandboxId) => before.includes(sandboxId)),
+      "nothing was created",
+    );
   });
 
   console.log("ALIYUN SMOKE OK");

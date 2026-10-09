@@ -38,7 +38,7 @@ jobs:
         # dist/index.js imports a value from eve/sandbox/provider
         # (defineSandboxProvider), so a peer that typechecks could still fail
         # to load.
-        eve: ["0.64.0", "latest"]
+        eve: ["0.75.0", "latest"]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

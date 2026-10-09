@@ -140,6 +140,10 @@ export class FakeProvider implements Provider {
       )
       .map((sandbox) => sandbox.id);
   }
+
+  async kill(sandboxId: string): Promise<void> {
+    await this.sandboxes.get(sandboxId)?.kill();
+  }
 }
 
 export interface FakeLinuxShellOptions {

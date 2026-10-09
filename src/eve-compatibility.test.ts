@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import type { MutableNetworkSandboxSession as FloorSession } from "eve-floor/sandbox";
 import {
   defineSandboxProvider as defineFloorProvider,
   type SandboxProviderImplementation as FloorImplementation,
@@ -12,7 +11,7 @@ import { type AliyunSandboxEnvironmentOptions, createAliyunEnvironment } from ".
 import type { AliyunSandboxPreparedArtifact, AliyunSandboxSessionState } from "./implementation.js";
 import { AliyunSandbox } from "./index.js";
 import type { AliyunSandboxOpenOptions } from "./options.js";
-import type { AliyunSandboxSession as LatestSession } from "./public-session.js";
+import type { AliyunSandboxSession } from "./public-session.js";
 
 /**
  * The peer range is `>=floor <1.0.0`. These are type-level tests — the
@@ -29,14 +28,14 @@ describe("published eve compatibility", () => {
       AliyunSandboxOpenOptions,
       AliyunSandboxPreparedArtifact,
       AliyunSandboxSessionState,
-      FloorSession
+      AliyunSandboxSession
     > = createAliyunEnvironment({ connectionEnv: {} });
     const provider = defineFloorProvider<
       AliyunSandboxEnvironmentOptions,
       AliyunSandboxOpenOptions,
       AliyunSandboxPreparedArtifact,
       AliyunSandboxSessionState,
-      FloorSession
+      AliyunSandboxSession
     >({ name: "aliyun", environment: (options) => createAliyunEnvironment(options) });
 
     expect(typeof implementation.start).toBe("function");
@@ -48,9 +47,9 @@ describe("published eve compatibility", () => {
       AliyunSandboxOpenOptions,
       AliyunSandboxPreparedArtifact,
       AliyunSandboxSessionState,
-      LatestSession
+      AliyunSandboxSession
     > = createAliyunEnvironment({ connectionEnv: {} });
-    const environment: LatestEnvironment<AliyunSandboxOpenOptions, LatestSession> =
+    const environment: LatestEnvironment<AliyunSandboxOpenOptions, AliyunSandboxSession> =
       AliyunSandbox.environment({ connectionEnv: {} });
 
     expect(typeof implementation.resume).toBe("function");

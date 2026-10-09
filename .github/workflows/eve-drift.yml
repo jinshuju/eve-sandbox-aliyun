@@ -1,6 +1,6 @@
 name: eve drift
 
-# The peer range is `>=0.64.0 <1.0.0`. CI pins both ends it *can* pin: the floor
+# The peer range is `>=0.75.0 <1.0.0`. CI pins both ends it *can* pin: the floor
 # and the newest eve this package was verified against. The ceiling is the one
 # claim no pinned dependency can cover -- eve releases that do not exist yet --
 # so this re-runs the suite against whatever eve@latest is today. A breaking 0.x
@@ -68,7 +68,7 @@ jobs:
               labels: ["eve-drift"],
               body: [
                 `The scheduled drift check failed against \`eve@${version}\`, which the`,
-                "declared peer range `>=0.64.0 <1.0.0` currently accepts.",
+                "declared peer range `>=0.75.0 <1.0.0` currently accepts.",
                 "",
                 `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
                 "",
