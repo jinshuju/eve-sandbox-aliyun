@@ -343,6 +343,17 @@ export function createAliyunSandboxImplementation(
     return null;
   }
 
+  const releases = new Map<string, Promise<void>>();
+  function trackRelease(sessionKey: string, release: () => Promise<void>): Promise<void> {
+    const pending = release();
+    releases.set(sessionKey, pending);
+    const forget = () => {
+      if (releases.get(sessionKey) === pending) releases.delete(sessionKey);
+    };
+    pending.then(forget, forget);
+    return pending;
+  }
+
   function createHandle(
     live: ProviderSandbox,
     state: AliyunSandboxSessionState,
@@ -351,7 +362,7 @@ export function createAliyunSandboxImplementation(
     const { internal, session } = openSession(live, state.env);
     let released: Promise<void> | undefined;
     const releaseCompute = () =>
-      (released ??= (async () => {
+      (released ??= trackRelease(state.sessionKey, async () => {
         await internal.killAll();
         try {
           await live.pause();
@@ -361,7 +372,7 @@ export function createAliyunSandboxImplementation(
         }
         await captureArchive(live, checkpointPath);
         await live.kill();
-      })().catch((error: unknown) => {
+      }).catch((error: unknown) => {
         released = undefined;
         throw error;
       }));
@@ -458,26 +469,41 @@ export function createAliyunSandboxImplementation(
       };
     },
 
+    // After the session's terminal outcome. Without this hook eve resumes the
+    // session only to delete it, and resume() would create a sandbox when the
+    // recorded one is gone. Killing by id never creates or resumes one. eve may
+    // retry the step, so every sandbox is attempted and the checkpoint is kept
+    // until all of them are gone.
+    async onSessionEnd(context, _artifact, stateValue) {
+      const state = requireState(stateValue);
+      const cacheRoot = resolveCacheRoot(context.storagePath, options.cacheDir);
+      // A stop still capturing in this process would publish the checkpoint after it is removed.
+      await releases.get(state.sessionKey)?.catch(() => {});
+      const failures: unknown[] = [];
+      const discovered = await provider
+        .findByMetadata({ [SESSION_KEY_METADATA]: state.sessionKey })
+        .catch((error: unknown) => {
+          failures.push(error);
+          return [];
+        });
+      const kills = await Promise.allSettled(
+        [...new Set([state.sandboxId, ...discovered])].map((id) => provider.kill(id)),
+      );
+      for (const kill of kills) if (kill.status === "rejected") failures.push(kill.reason);
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures,
+          "aliyun sandbox: could not destroy the session's sandboxes",
+        );
+      }
+      await rm(resolveSessionCheckpointPath(cacheRoot, state.sessionKey), { force: true });
+    },
+
     // The recorded sandbox when it is still there; otherwise a fresh one
     // restored from the session's checkpoint, which already contains the
     // template it grew from, or failing that from the template. The last case
     // is the idle timeout on an account without pause: files written after the
     // session started are gone, but its env and network policy are not.
-    // After the session's terminal outcome. Without this hook eve resumes the
-    // session only to delete it, and resume() would create a sandbox when the
-    // recorded one is gone. Killing by id never creates or resumes one, and is
-    // idempotent because eve may retry the step.
-    async onSessionEnd(context, _artifact, stateValue) {
-      const state = requireState(stateValue);
-      const cacheRoot = resolveCacheRoot(context.storagePath, options.cacheDir);
-      const sandboxIds = new Set([
-        state.sandboxId,
-        ...(await provider.findByMetadata({ [SESSION_KEY_METADATA]: state.sessionKey })),
-      ]);
-      for (const sandboxId of sandboxIds) await provider.kill(sandboxId);
-      await rm(resolveSessionCheckpointPath(cacheRoot, state.sessionKey), { force: true });
-    },
-
     async resume(context, artifactValue, stateValue) {
       const artifact = requireArtifact(artifactValue);
       const state = requireState(stateValue);

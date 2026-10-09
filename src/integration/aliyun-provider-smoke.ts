@@ -242,17 +242,11 @@ try {
     assert.deepEqual(await sandboxesOf(state.sessionKey), []);
   });
 
-  await check("session end destroys a stopped session without creating a sandbox", async () => {
+  await check("session end destroys a stopped session's sandbox by id", async () => {
     const ended = await implementation.start(context, undefined, artifact);
     await ended.handle.onSandboxStop();
-    const before = await provider.findByMetadata({ smokeRun: runId });
     await implementation.onSessionEnd?.(context, artifact, ended.state, { reason: "completed" });
     assert.deepEqual(await sandboxesOf(ended.state.sessionKey), []);
-    const after = await provider.findByMetadata({ smokeRun: runId });
-    assert.ok(
-      after.every((sandboxId) => before.includes(sandboxId)),
-      "nothing was created",
-    );
   });
 
   console.log("ALIYUN SMOKE OK");

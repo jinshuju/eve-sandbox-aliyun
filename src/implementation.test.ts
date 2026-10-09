@@ -489,6 +489,68 @@ describe("session end", () => {
     expect(provider.sandboxes.size).toBe(0);
   });
 
+  test("a failed kill does not stop the others, and the retry finishes with the checkpoint", async () => {
+    const { provider, implementation, start } = setup();
+    const { handle, state } = await start();
+    await handle.onSandboxStop();
+    const orphan = await provider.create({
+      template: "t",
+      timeoutMs: 1,
+      metadata: { eveSessionKey: state.sessionKey },
+    });
+    const kill = provider.kill.bind(provider);
+    let failOnce = true;
+    provider.kill = async (sandboxId) => {
+      if (sandboxId === state.sandboxId && failOnce) {
+        failOnce = false;
+        throw new Error("provider down");
+      }
+      await kill(sandboxId);
+    };
+
+    await expect(endSession(implementation, state)).rejects.toThrow("could not destroy");
+    expect(orphan.killed).toBe(true);
+    expect(await readdir(path.join(cacheDir, "sessions"))).toHaveLength(1);
+
+    await endSession(implementation, state);
+    expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
+  });
+
+  test("still destroys the recorded sandbox when the lookup by session key fails", async () => {
+    const { provider, implementation, start } = setup();
+    const { state } = await start();
+    provider.findByMetadata = async () => Promise.reject(new Error("list failed"));
+
+    await expect(endSession(implementation, state)).rejects.toThrow("could not destroy");
+    expect(provider.created[0]?.killed).toBe(true);
+  });
+
+  test("waits for a stop that is still checkpointing, so the checkpoint does not come back", async () => {
+    let gated = false;
+    let captureStarted!: () => void;
+    let finishCapture!: () => void;
+    const capturing = new Promise<void>((resolve) => (captureStarted = resolve));
+    const gate = new Promise<void>((resolve) => (finishCapture = resolve));
+    const linux = createFakeLinuxShell();
+    const { implementation, start } = setup(async (command, sandbox) => {
+      if (gated && command.command.includes("-czpf")) {
+        captureStarted();
+        await gate;
+      }
+      return await linux(command, sandbox);
+    });
+    const { handle, state } = await start();
+    gated = true;
+
+    const stopping = handle.onSandboxStop();
+    await capturing;
+    const ending = endSession(implementation, state);
+    finishCapture();
+    await Promise.all([stopping, ending]);
+
+    expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
+  });
+
   test("rejects state this provider did not write", async () => {
     const { implementation } = setup();
 
