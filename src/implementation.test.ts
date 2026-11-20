@@ -154,6 +154,39 @@ describe("prepare", () => {
     });
   });
 
+  test("creates every sandbox, the build one included, with the environment's public traffic setting", async () => {
+    const { provider, implementation, start } = setup(undefined, { allowPublicTraffic: false });
+
+    const artifact = await templateWith(implementation);
+    await start(artifact);
+
+    expect(provider.created).toHaveLength(2);
+    for (const { createOptions } of provider.created) {
+      expect(createOptions.allowPublicTraffic).toBe(false);
+    }
+  });
+
+  test("a replacement sandbox keeps public traffic closed", async () => {
+    const { provider, implementation, start, resume } = setup(undefined, {
+      allowPublicTraffic: false,
+    });
+    const artifact = await templateWith(implementation);
+    const { state } = await start(artifact);
+    await provider.sandboxes.get(state.sandboxId)?.kill();
+
+    await resume(state, artifact);
+
+    expect(provider.created.at(-1)?.createOptions.allowPublicTraffic).toBe(false);
+  });
+
+  test("leaves public traffic to the provider's default unless asked", async () => {
+    const { provider, start } = setup();
+
+    await start();
+
+    expect(provider.created[0]?.createOptions).not.toHaveProperty("allowPublicTraffic");
+  });
+
   test("reports progress through eve's log", async () => {
     const { implementation } = setup();
     const messages: string[] = [];

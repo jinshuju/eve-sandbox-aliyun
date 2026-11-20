@@ -25,6 +25,13 @@ export interface AliyunSandboxCreateOptions {
   /** Extra metadata labels on every sandbox this environment creates, e.g. for `pnpm sweep --tag`. */
   readonly metadata?: Readonly<Record<string, string>>;
   /**
+   * `false` closes every sandbox's port URLs (`https://<port>-<id>.<domain>`)
+   * to requests without the sandbox's traffic token. Omitted, the provider's
+   * default applies, and anyone who knows a sandbox id reaches any port that
+   * listens in it. The provider's own channel to the sandbox is not affected.
+   */
+  readonly allowPublicTraffic?: boolean;
+  /**
    * Setup every session inherits: runs once while the template is built, after
    * the seed files are written. What it leaves on the filesystem becomes the
    * template archive.
@@ -53,6 +60,7 @@ export interface ResolvedAliyunSandboxOptions {
   readonly cacheDir: string | null;
   readonly networkPolicy: SandboxNetworkPolicy;
   readonly metadata: Readonly<Record<string, string>>;
+  readonly allowPublicTraffic: boolean | undefined;
   readonly prepare: ((sandbox: AliyunSandboxSession) => Promise<void> | void) | null;
 }
 
@@ -66,6 +74,7 @@ export function resolveAliyunSandboxOptions(
     cacheDir: options.cacheDir ?? null,
     networkPolicy: options.networkPolicy ?? "allow-all",
     metadata: { ...options.metadata },
+    allowPublicTraffic: options.allowPublicTraffic,
     prepare: options.prepare ?? null,
   };
 }

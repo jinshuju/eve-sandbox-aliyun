@@ -16,12 +16,16 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Sandbox } from "e2b";
+import type { SandboxNetworkPolicy } from "eve/sandbox";
 import { createAliyunEnvironment } from "../environment.js";
 import { createE2bProvider, resolveAliyunConnection } from "../index.js";
+import { translateNetworkPolicy } from "../network-policy.js";
 import { prepareContext, sessionContext } from "../testing/eve-context.js";
 
 const runId = `smoke-${randomUUID().slice(0, 8)}`;
-const provider = createE2bProvider({ connection: resolveAliyunConnection({}) });
+const connection = resolveAliyunConnection({});
+const provider = createE2bProvider({ connection });
 const cacheDir = await mkdtemp(path.join(tmpdir(), "eve-aliyun-smoke-"));
 const implementation = createAliyunEnvironment({
   cacheDir,
@@ -41,6 +45,12 @@ const implementation = createAliyunEnvironment({
     assert.equal(setup.exitCode, 0, setup.stderr || setup.stdout);
   },
 });
+const closedEnvironment = createAliyunEnvironment({
+  cacheDir,
+  timeoutMs: 5 * 60_000,
+  metadata: { smokeRun: runId },
+  allowPublicTraffic: false,
+});
 const context = sessionContext(`${runId}-session`);
 const seedFiles = [
   { path: "/workspace/seed/schema.sql", content: "create table t;\n" },
@@ -51,6 +61,32 @@ async function check(name: string, fn: () => Promise<void>): Promise<void> {
   const startedAt = Date.now();
   await fn();
   console.log(`  ok  ${name} (${Date.now() - startedAt} ms)`);
+}
+
+/**
+ * The sandbox's network block is `policy` with public traffic closed, and its
+ * port 8080 answers with the traffic token (so the server is up and the gateway
+ * routes) but refuses without it.
+ */
+async function assertPortsClosed(sandboxId: string, policy: SandboxNetworkPolicy): Promise<void> {
+  const expected = translateNetworkPolicy(policy);
+  const { network } = await Sandbox.getInfo(sandboxId, { ...connection });
+  assert.equal(network?.allowPublicTraffic, false, "allowPublicTraffic is still false");
+  assert.deepEqual(network?.allowOut ?? [], expected.allowOut, "the egress update landed");
+  assert.deepEqual(network?.denyOut ?? [], expected.denyOut, "the egress update landed");
+  assert.deepEqual(Object.keys(network?.rules ?? {}), Object.keys(expected.rules));
+  const sdk = await Sandbox.connect(sandboxId, { ...connection });
+  const url = `https://${sdk.getHost(8080)}/`;
+  const status = async (headers: Record<string, string>) =>
+    (await fetch(url, { headers, signal: AbortSignal.timeout(15_000) })).status;
+  const token = { "e2b-traffic-access-token": sdk.trafficAccessToken ?? "" };
+  let open = 0;
+  for (let attempt = 0; attempt < 10 && open !== 200; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 500));
+    open = await status(token);
+  }
+  assert.equal(open, 200, "the server answers with the traffic token");
+  assert.equal(await status({}), 403, "and refuses without it");
 }
 
 const sandboxesOf = (sessionKey: string) => provider.findByMetadata({ eveSessionKey: sessionKey });
@@ -150,6 +186,50 @@ try {
     await session.removePath({ path: "data", recursive: true });
     assert.equal(await session.readTextFile({ path: "data/lines.txt" }), null);
   });
+
+  // A consumer that closes its port URLs to requests without the traffic token.
+  // eve's setNetworkPolicy() sends a whole new egress block that names no
+  // allowPublicTraffic, and the SDK says omitted fields are cleared, so every
+  // shape of update is checked to leave the ports closed.
+  const closedArtifact = await closedEnvironment.prepare(prepareContext());
+  const egressUpdates: Array<[string, SandboxNetworkPolicy]> = [
+    ["an allow-list", { allow: ["www.baidu.com"] }],
+    [
+      "a header rule",
+      { allow: { "httpbin.org": [{ transform: [{ headers: { "x-eve-smoke": runId } }] }] } },
+    ],
+    ["deny-all", "deny-all"],
+    ["allow-all", "allow-all"],
+  ];
+  const closedCases: Array<[string, SandboxNetworkPolicy | undefined]> = [
+    ["without egress rules", undefined],
+    ["with allowOut/denyOut", { allow: ["www.baidu.com"], subnets: { deny: ["10.0.0.0/8"] } }],
+  ];
+  for (const [index, [label, networkPolicy]] of closedCases.entries()) {
+    await check(
+      `allowPublicTraffic: false keeps port URLs closed ${label}, across setNetworkPolicy`,
+      async () => {
+        const closed = await closedEnvironment.start(
+          sessionContext(`${runId}-closed-${index}`),
+          networkPolicy === undefined ? undefined : { networkPolicy },
+          closedArtifact,
+        );
+        try {
+          const serve = await closed.handle.sandbox.run({
+            command: "nohup python3 -m http.server 8080 >/dev/null 2>&1 &",
+          });
+          assert.equal(serve.exitCode, 0, serve.stderr);
+          await assertPortsClosed(closed.state.sandboxId, networkPolicy ?? "allow-all");
+          for (const [, policy] of egressUpdates) {
+            await closed.handle.sandbox.setNetworkPolicy(policy);
+            await assertPortsClosed(closed.state.sandboxId, policy);
+          }
+        } finally {
+          await closed.handle.onSandboxDelete();
+        }
+      },
+    );
+  }
 
   await check("spawn streams output, and kill ends the process and its children", async () => {
     const proc = await session.spawn({ command: "echo ready; sleep 600 & wait" });

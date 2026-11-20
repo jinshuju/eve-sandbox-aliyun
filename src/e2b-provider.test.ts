@@ -129,6 +129,42 @@ describe("createE2bProvider", () => {
     expect(calls[0]?.[2]).not.toHaveProperty("network.allowOut");
   });
 
+  test("create closes the sandbox's URLs to requests without the traffic token when public traffic is off", async () => {
+    const { sdk, calls } = fakeSdk();
+
+    await createE2bProvider({ connection, sdk }).create({
+      template: "t",
+      timeoutMs: 1,
+      network: { allowOut: [], denyOut: ["0.0.0.0/0"], rules: {} },
+      allowPublicTraffic: false,
+    });
+
+    expect(calls[0]?.[2]).toMatchObject({
+      network: { denyOut: ["0.0.0.0/0"], allowPublicTraffic: false },
+    });
+  });
+
+  test("create sends a network block for closed public traffic alone, with no egress rules", async () => {
+    const { sdk, calls } = fakeSdk();
+
+    await createE2bProvider({ connection, sdk }).create({
+      template: "t",
+      timeoutMs: 1,
+      allowPublicTraffic: false,
+    });
+
+    expect(calls[0]?.[2]).toMatchObject({ network: { allowPublicTraffic: false } });
+    expect(calls[0]?.[2]).not.toHaveProperty("allowPublicTraffic");
+  });
+
+  test("create leaves the provider's default when public traffic is not mentioned", async () => {
+    const { sdk, calls } = fakeSdk();
+
+    await createE2bProvider({ connection, sdk }).create({ template: "t", timeoutMs: 1 });
+
+    expect(calls[0]?.[2]).not.toHaveProperty("network");
+  });
+
   test("startCommand runs in the background with the provider's command timeout disabled", async () => {
     const { sdk, calls } = fakeSdk();
     const sandbox = await createE2bProvider({ connection, sdk }).create({
