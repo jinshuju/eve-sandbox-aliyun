@@ -49,13 +49,17 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
  * At create time the provider rejects a network block that is present but
  * empty, and an unrestricted sandbox is simply one without the block. (The
  * update endpoint is the opposite: empty fields are how restrictions clear.)
+ * Public traffic rides in the same block, as the SDK takes it.
  */
-function populatedNetwork(network: ProviderNetworkConfig | undefined) {
-  if (network === undefined) return undefined;
+function populatedNetwork(
+  network: ProviderNetworkConfig = { allowOut: [], denyOut: [], rules: {} },
+  allowPublicTraffic?: boolean,
+) {
   const populated = {
     ...(network.allowOut.length > 0 ? { allowOut: network.allowOut } : {}),
     ...(network.denyOut.length > 0 ? { denyOut: network.denyOut } : {}),
     ...(Object.keys(network.rules).length > 0 ? { rules: network.rules } : {}),
+    ...(allowPublicTraffic === undefined ? {} : { allowPublicTraffic }),
   };
   return Object.keys(populated).length > 0 ? populated : undefined;
 }
@@ -136,8 +140,8 @@ export function createE2bProvider(input: CreateE2bProviderInput): Provider {
   const { connection } = input;
   return {
     async create(options: ProviderCreateOptions) {
-      const { template, network, ...createOptions } = options;
-      const populated = populatedNetwork(network);
+      const { template, network, allowPublicTraffic, ...createOptions } = options;
+      const populated = populatedNetwork(network, allowPublicTraffic);
       return wrapSandbox(
         await sdk.create(template, {
           ...connection,

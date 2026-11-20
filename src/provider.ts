@@ -54,6 +54,11 @@ export interface ProviderCreateOptions {
   readonly metadata?: Readonly<Record<string, string>>;
   /** Egress configuration in force from the moment the sandbox starts. */
   readonly network?: ProviderNetworkConfig;
+  /**
+   * `false` makes the provider's gateway refuse requests to the sandbox's ports
+   * that carry no traffic token. Omitted, the provider's default applies: open.
+   */
+  readonly allowPublicTraffic?: boolean;
 }
 
 export interface Provider {

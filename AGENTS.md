@@ -48,6 +48,11 @@ as a bug otherwise:
   `sudo`, no `~/.profile`. 0.2.0's capture script failed there, and silently —
   the only symptom was "captured archive is missing". Anything in
   `src/archive.ts` must run on both; `src/archive.test.ts` guards the flags.
+- `PUT /sandboxes/{id}/network` replaces the egress block, and the SDK says
+  omitted fields are cleared, yet it leaves `allowPublicTraffic` as created: a
+  sandbox created closed stays closed across every `setNetworkPolicy()` shape.
+  The smoke test asserts this; if it ever fails, `updateNetwork` has to carry
+  the field (the SDK's update body cannot).
 - On accounts that do have pause, the SDK object that paused a sandbox is dead
   afterwards (`500` on any call); only a fresh `connect` by id works. Reported by
   the GitLab-hosted predecessor of this package. Never reuse a handle after

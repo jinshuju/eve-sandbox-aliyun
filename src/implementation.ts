@@ -281,6 +281,9 @@ export function createAliyunSandboxImplementation(
       envs: options.env,
       metadata: { ...options.metadata, ...metadata },
       network: network ?? initialNetwork,
+      ...(options.allowPublicTraffic === undefined
+        ? {}
+        : { allowPublicTraffic: options.allowPublicTraffic }),
     });
   }
 
