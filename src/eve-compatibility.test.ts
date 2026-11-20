@@ -11,10 +11,10 @@ import { type AliyunSandboxEnvironmentOptions, createAliyunEnvironment } from ".
 import type { AliyunSandboxPreparedArtifact, AliyunSandboxSessionState } from "./implementation.js";
 import { AliyunSandbox } from "./index.js";
 import type { AliyunSandboxOpenOptions } from "./options.js";
-import type { AliyunSandboxSession } from "./public-session.js";
+import type { AliyunSandboxExtensions, AliyunSandboxSession } from "./session.js";
 
 /**
- * The peer range is `>=floor <1.0.0`. These are type-level tests — the
+ * The peer range is `>=floor <2.0.0`. These are type-level tests — the
  * annotations are the assertion, so `pnpm typecheck` must run in CI — pinning
  * both ends of the range to real installed packages.
  *
@@ -28,14 +28,14 @@ describe("published eve compatibility", () => {
       AliyunSandboxOpenOptions,
       AliyunSandboxPreparedArtifact,
       AliyunSandboxSessionState,
-      AliyunSandboxSession
+      AliyunSandboxExtensions
     > = createAliyunEnvironment({ connectionEnv: {} });
     const provider = defineFloorProvider<
       AliyunSandboxEnvironmentOptions,
       AliyunSandboxOpenOptions,
       AliyunSandboxPreparedArtifact,
       AliyunSandboxSessionState,
-      AliyunSandboxSession
+      AliyunSandboxExtensions
     >({ name: "aliyun", environment: (options) => createAliyunEnvironment(options) });
 
     expect(typeof implementation.start).toBe("function");
@@ -47,7 +47,7 @@ describe("published eve compatibility", () => {
       AliyunSandboxOpenOptions,
       AliyunSandboxPreparedArtifact,
       AliyunSandboxSessionState,
-      AliyunSandboxSession
+      AliyunSandboxExtensions
     > = createAliyunEnvironment({ connectionEnv: {} });
     const environment: LatestEnvironment<AliyunSandboxOpenOptions, AliyunSandboxSession> =
       AliyunSandbox.environment({ connectionEnv: {} });

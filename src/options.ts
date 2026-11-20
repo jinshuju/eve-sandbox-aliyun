@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { SandboxNetworkPolicy } from "eve/sandbox";
-import type { AliyunSandboxSession } from "./public-session.js";
 
 export const DEFAULT_TEMPLATE = "code-interpreter-v1";
 /** Same default lifetime as eve's Vercel provider. */
@@ -31,12 +30,6 @@ export interface AliyunSandboxCreateOptions {
    * listens in it. The provider's own channel to the sandbox is not affected.
    */
   readonly allowPublicTraffic?: boolean;
-  /**
-   * Setup every session inherits: runs once while the template is built, after
-   * the seed files are written. What it leaves on the filesystem becomes the
-   * template archive.
-   */
-  readonly prepare?: (sandbox: AliyunSandboxSession) => Promise<void> | void;
 }
 
 /** Options accepted by `environment.open()`, once per durable session. */
@@ -44,11 +37,13 @@ export interface AliyunSandboxOpenOptions {
   /**
    * Environment variables added to every command in this session, over the
    * environment's `env`. Kept in eve's session state, so they outlast the turn.
+   * Applied when the session's sandbox is created; a start that finds the
+   * session's sandbox already running keeps the env it was created with.
    */
   readonly env?: Readonly<Record<string, string>>;
   /**
    * Egress policy for this session, in force from the moment its sandbox
-   * starts. Kept in eve's session state, so a replacement sandbox gets it too.
+   * starts. Applied when the session's sandbox is created.
    */
   readonly networkPolicy?: SandboxNetworkPolicy;
 }
@@ -61,7 +56,6 @@ export interface ResolvedAliyunSandboxOptions {
   readonly networkPolicy: SandboxNetworkPolicy;
   readonly metadata: Readonly<Record<string, string>>;
   readonly allowPublicTraffic: boolean | undefined;
-  readonly prepare: ((sandbox: AliyunSandboxSession) => Promise<void> | void) | null;
 }
 
 export function resolveAliyunSandboxOptions(
@@ -75,7 +69,6 @@ export function resolveAliyunSandboxOptions(
     networkPolicy: options.networkPolicy ?? "allow-all",
     metadata: { ...options.metadata },
     allowPublicTraffic: options.allowPublicTraffic,
-    prepare: options.prepare ?? null,
   };
 }
 
@@ -88,31 +81,19 @@ export function resolveCacheRoot(storagePath: string, cacheDir: string | null): 
   return cacheDir ?? path.join(storagePath, "aliyun");
 }
 
-export interface TemplateIdentity {
-  /** eve's revision of the authored sandbox source, `prepare` included. */
-  readonly sourceRevision: string;
-  /** Content keys of the seeded workspace and skill trees. */
-  readonly resources: Readonly<Record<string, string | null>>;
-}
-
-/** A template is only reusable on the source, seeds, base image and environment it was built with. */
-export function resolveTemplateArchiveName(
-  identity: TemplateIdentity,
-  options: ResolvedAliyunSandboxOptions,
-): string {
-  const key = JSON.stringify([
-    identity.sourceRevision,
-    identity.resources,
-    options.template,
-    options.env,
-  ]);
-  return `${sha256(key)}.tgz`;
+/** A template archive's file name, from eve's template key. */
+export function resolveTemplateArchiveName(templateKey: string): string {
+  return `${templateKey.slice(0, 32)}.tgz`;
 }
 
 export function resolveTemplateArchivePath(cacheRoot: string, archive: string): string {
   return path.join(cacheRoot, "templates", archive);
 }
 
-export function resolveSessionCheckpointPath(cacheRoot: string, sessionKey: string): string {
-  return path.join(cacheRoot, "sessions", `${sha256(sessionKey)}.tgz`);
+/**
+ * One checkpoint per eve session, keyed by its id: the files its sandbox had
+ * when it last stopped. (0.4 keyed it by a session key unique to each start.)
+ */
+export function resolveSessionCheckpointPath(cacheRoot: string, key: string): string {
+  return path.join(cacheRoot, "sessions", `${sha256(key)}.tgz`);
 }

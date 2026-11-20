@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { ProviderCommand, ProviderCommandCallbacks } from "./provider.js";
 import { startSandboxProcess } from "./process.js";
-import { streamToBytes } from "./public-session.js";
+import { streamToBytes } from "./streams.js";
 
 /** A scripted provider command the test drives by hand. */
 function scriptedCommand() {

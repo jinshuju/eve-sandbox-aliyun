@@ -6,7 +6,7 @@ import {
   type AliyunSandboxSessionState,
 } from "./implementation.js";
 import type { AliyunSandboxOpenOptions } from "./options.js";
-import type { AliyunSandboxSession } from "./public-session.js";
+import type { AliyunSandboxExtensions } from "./session.js";
 
 export type { AliyunSandboxEnvironmentOptions } from "./environment.js";
 export {
@@ -26,7 +26,7 @@ export {
   type AliyunSandboxCreateOptions,
   type AliyunSandboxOpenOptions,
 } from "./options.js";
-export type { AliyunSandboxSession } from "./public-session.js";
+export type { AliyunSandboxExtensions, AliyunSandboxSession } from "./session.js";
 export type {
   Provider,
   ProviderCommand,
@@ -56,7 +56,7 @@ export const AliyunSandbox = defineSandboxProvider<
   AliyunSandboxOpenOptions,
   AliyunSandboxPreparedArtifact,
   AliyunSandboxSessionState,
-  AliyunSandboxSession
+  AliyunSandboxExtensions
 >({
   name: ALIYUN_PROVIDER_NAME,
   environment: (options) => createAliyunEnvironment(options),

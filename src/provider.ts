@@ -65,6 +65,11 @@ export interface Provider {
   create(options: ProviderCreateOptions): Promise<ProviderSandbox>;
   /** Reattaches to (and resumes) a sandbox; `null` when it no longer exists. */
   connect(sandboxId: string): Promise<ProviderSandbox | null>;
+  /**
+   * Whether a sandbox is running or paused, without connecting to it (connecting
+   * resumes a paused one). `null` when it no longer exists.
+   */
+  getState(sandboxId: string): Promise<"running" | "paused" | null>;
   /** Ids of live sandboxes whose metadata contains every given pair. */
   findByMetadata(metadata: Readonly<Record<string, string>>): Promise<string[]>;
   /** Destroys a sandbox by id without reconnecting to it. Succeeds when it is already gone. */

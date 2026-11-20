@@ -69,6 +69,12 @@ function fakeSdk(overrides: Record<string, unknown> = {}) {
         },
       };
     },
+    getInfo:
+      overrides.getInfo ??
+      (async (id: string, options: unknown) => {
+        calls.push(["getInfo", id, options]);
+        return { state: overrides.state ?? "running" };
+      }),
     async kill(id: string, options: unknown) {
       calls.push(["kill-by-id", id, options]);
       return overrides.killFound ?? true;
@@ -298,5 +304,26 @@ describe("createE2bProvider", () => {
     const { sdk } = fakeSdk({ killFound: false });
 
     await expect(createE2bProvider({ connection, sdk }).kill("sbx-x")).resolves.toBeUndefined();
+  });
+
+  test("getState reads the state without connecting, which would resume a paused sandbox", async () => {
+    const { sdk, calls } = fakeSdk({ state: "paused" });
+
+    expect(await createE2bProvider({ connection, sdk }).getState("sbx-9")).toBe("paused");
+    expect(calls).toEqual([["getInfo", "sbx-9", { ...connection }]]);
+  });
+
+  test("getState reports a running sandbox, and null for one that no longer exists", async () => {
+    const running = fakeSdk({ state: "running" });
+    const gone = fakeSdk({
+      getInfo: async () => {
+        throw new NotFoundError("Sandbox sbx-x not found");
+      },
+    });
+
+    expect(await createE2bProvider({ connection, sdk: running.sdk }).getState("sbx-1")).toBe(
+      "running",
+    );
+    expect(await createE2bProvider({ connection, sdk: gone.sdk }).getState("sbx-x")).toBeNull();
   });
 });

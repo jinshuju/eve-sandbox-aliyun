@@ -24,6 +24,7 @@ export interface E2bSandboxStatic {
     readonly hasNext: boolean;
     nextItems(): Promise<ReadonlyArray<{ readonly sandboxId: string }>>;
   };
+  getInfo(sandboxId: string, options: Record<string, unknown>): Promise<{ readonly state: string }>;
   /** `false` when the sandbox does not exist. */
   kill(sandboxId: string, options: Record<string, unknown>): Promise<boolean>;
 }
@@ -32,6 +33,7 @@ const realSdk: E2bSandboxStatic = {
   create: async (template, options) => await Sandbox.create(template, options),
   connect: async (sandboxId, options) => await Sandbox.connect(sandboxId, options),
   list: (options) => Sandbox.list(options),
+  getInfo: async (sandboxId, options) => await Sandbox.getInfo(sandboxId, options),
   kill: async (sandboxId, options) => await Sandbox.kill(sandboxId, options),
 };
 
@@ -157,6 +159,16 @@ export function createE2bProvider(input: CreateE2bProviderInput): Provider {
     async connect(sandboxId) {
       try {
         return wrapSandbox(await sdk.connect(sandboxId, { ...connection }));
+      } catch (error) {
+        if (error instanceof NotFoundError) return null;
+        throw error;
+      }
+    },
+
+    async getState(sandboxId) {
+      try {
+        const { state } = await sdk.getInfo(sandboxId, { ...connection });
+        return state === "paused" ? "paused" : "running";
       } catch (error) {
         if (error instanceof NotFoundError) return null;
         throw error;
