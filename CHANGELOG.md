@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.4.0...v0.5.0) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* requires eve >=1.0.0 <2.0.0. createAliyunSandboxImplementation returns eve 1.x's { connection, state } instead of handles, and the AliyunSandboxSession interface is now SandboxSession & AliyunSandboxExtensions. The Provider interface gains a required getState(sandboxId), so code that wraps or implements a Provider must forward or implement it. `prepare` is eve's standard option and is no longer in this package's options type.
+
+### Features
+
+* allowPublicTraffic option to close sandbox port URLs to the public ([a039ed2](https://github.com/jinshuju/eve-sandbox-aliyun/commit/a039ed2011c31512e9388ca1d2695295fce061a8))
+* allowPublicTraffic option to close sandbox port URLs to the public ([e95aea2](https://github.com/jinshuju/eve-sandbox-aliyun/commit/e95aea288e106adbca90d6cdfc599b81fca735e8))
+* port to eve 1.x connection-based sandbox providers ([afe8ec5](https://github.com/jinshuju/eve-sandbox-aliyun/commit/afe8ec52d894664830b15b9ad4107790f09aeaa3))
+
 ## [0.4.0](https://github.com/jinshuju/eve-sandbox-aliyun/compare/v0.3.1...v0.4.0) (2026-10-09)
 
 
