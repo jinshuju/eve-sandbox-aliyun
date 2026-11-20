@@ -258,7 +258,11 @@ type from this package rather than from `eve/sandbox`.
 | `AliyunSandboxSession` interface                      | `SandboxSession & AliyunSandboxExtensions`                                 |
 
 Sessions in flight carry over: `resume()` and session end still accept the state 0.4 wrote, and a
-0.4 checkpoint is restored by the session's next start.
+0.4 checkpoint is restored by the session's next start. The reverse does not hold: 0.4 rejects the
+state this release writes. If replicas on both versions share sessions (a rolling deploy) or you may
+roll back, record state in 0.4's shape until no replica runs 0.4:
+`{ version: 1, sessionKey, sandboxId, env, network: null }` with a `sessionKey` unique to the
+sandbox. This release accepts it too.
 
 ### Migrating from 0.2
 
