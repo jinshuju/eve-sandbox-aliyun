@@ -1,19 +1,30 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { SandboxSessionGoneError, SandboxTemplateNotProvisionedError } from "eve/sandbox/provider";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   type AliyunSandboxPreparedArtifact,
   type AliyunSandboxSessionState,
   createAliyunSandboxImplementation,
 } from "./implementation.js";
-import type { AliyunSandboxCreateOptions, AliyunSandboxOpenOptions } from "./options.js";
-import { prepareContext, sessionContext } from "./testing/eve-context.js";
-import { createFakeLinuxShell, FakeProvider } from "./testing/fake-provider.js";
+import {
+  type AliyunSandboxCreateOptions,
+  type AliyunSandboxOpenOptions,
+  resolveSessionCheckpointPath,
+} from "./options.js";
+import {
+  prepareContext,
+  sessionContext,
+  sessionOver,
+  type TestSession,
+} from "./testing/eve-context.js";
+import { createFakeLinuxShell, FakeProvider, type FakeShell } from "./testing/fake-provider.js";
 
 const ALL_TRAFFIC = "0.0.0.0/0";
 const NO_TEMPLATE: AliyunSandboxPreparedArtifact = { archive: null };
+const SESSION_FILE = "/var/tmp/.eve-aliyun/session.json";
 
 let cacheDir: string;
 
@@ -24,7 +35,10 @@ afterEach(async () => {
   await rm(cacheDir, { force: true, recursive: true });
 });
 
-function setup(shell = createFakeLinuxShell(), createOptions: AliyunSandboxCreateOptions = {}) {
+function setup(
+  shell: FakeShell = createFakeLinuxShell(),
+  createOptions: AliyunSandboxCreateOptions = {},
+) {
   const provider = new FakeProvider(shell);
   const implementation = createAliyunSandboxImplementation({
     provider,
@@ -35,15 +49,32 @@ function setup(shell = createFakeLinuxShell(), createOptions: AliyunSandboxCreat
     options?: AliyunSandboxOpenOptions,
     sessionId?: string,
   ) {
-    return await implementation.start(sessionContext(sessionId), options, artifact);
+    const started = await implementation.start(sessionContext(sessionId), options, artifact);
+    return { ...started, sandbox: sessionOver(started.connection) };
   }
-  async function resume(
-    state: AliyunSandboxSessionState,
-    artifact: AliyunSandboxPreparedArtifact = NO_TEMPLATE,
-  ) {
-    return await implementation.resume(sessionContext(), artifact, state);
+  async function resume(state: unknown, artifact: AliyunSandboxPreparedArtifact = NO_TEMPLATE) {
+    const connection = await implementation.resume(
+      sessionContext(),
+      artifact,
+      state as AliyunSandboxSessionState,
+    );
+    return { connection, sandbox: sessionOver(connection) };
   }
-  return { provider, implementation, start, resume };
+  async function end(state: unknown, sessionId?: string) {
+    await implementation.onSessionEnd(
+      sessionContext(sessionId),
+      state as AliyunSandboxSessionState | null,
+      { reason: "completed" },
+    );
+  }
+  async function idle(state: unknown) {
+    await implementation.onSessionIdle?.(
+      sessionContext(),
+      state as AliyunSandboxSessionState | null,
+      {},
+    );
+  }
+  return { provider, implementation, start, resume, end, idle };
 }
 
 async function templateWith(
@@ -56,13 +87,8 @@ async function templateWith(
 }
 
 describe("prepare", () => {
-  test("captures a template from seed files and prepare, then destroys the build sandbox", async () => {
-    const { provider, implementation } = setup(undefined, {
-      async prepare(sandbox) {
-        expect(await sandbox.readTextFile({ path: "schema.sql" })).toBe("create table t;");
-        await sandbox.writeTextFile({ path: "built.txt", content: "prepared" });
-      },
-    });
+  test("seeds files and runs the authored prepare through eve's populate, then destroys the build sandbox", async () => {
+    const { provider, implementation } = setup();
 
     const artifact = await implementation.prepare(
       prepareContext({
@@ -70,6 +96,10 @@ describe("prepare", () => {
           { path: "/workspace/schema.sql", content: "create table t;" },
           { path: "$HOME/.agents/skills/pdf/SKILL.md", content: Buffer.from("skill") },
         ],
+        async prepare(sandbox: TestSession) {
+          expect(await sandbox.readText("schema.sql")).toBe("create table t;");
+          await sandbox.writeText("built.txt", "prepared");
+        },
       }),
     );
 
@@ -77,6 +107,7 @@ describe("prepare", () => {
     expect(provider.created).toHaveLength(1);
     expect(provider.created[0]?.killed).toBe(true);
     expect(provider.created[0]?.text("/home/user/.agents/skills/pdf/SKILL.md")).toBe("skill");
+    expect(provider.created[0]?.text("/workspace/built.txt")).toBe("prepared");
     expect(await readdir(path.join(cacheDir, "templates"))).toEqual([artifact.archive]);
   });
 
@@ -90,36 +121,38 @@ describe("prepare", () => {
     expect(provider.created).toHaveLength(1);
   });
 
-  test("builds nothing when there is nothing to seed or prepare", async () => {
+  test("builds nothing when eve reports nothing to seed or prepare", async () => {
     const { provider, implementation } = setup();
 
     expect(await implementation.prepare(prepareContext())).toEqual({ archive: null });
     expect(provider.created).toHaveLength(0);
   });
 
-  test("a changed source revision or seed set builds a new template", async () => {
-    const { implementation } = setup();
+  test("a changed template key or base template builds a new template", async () => {
     const seedFiles = [{ path: "/workspace/seed.txt", content: "a" }];
-    const base = await implementation.prepare(prepareContext({ seedFiles }));
-
-    const revised = await implementation.prepare(
+    const base = await setup().implementation.prepare(prepareContext({ seedFiles }));
+    const revised = await setup().implementation.prepare(
       prepareContext({ seedFiles, sourceRevision: "rev-2" }),
     );
-    const reseeded = await implementation.prepare(
-      prepareContext({ seedFiles, resourcesKey: "other-resources" }),
+    const rebased = await setup(undefined, { template: "other" }).implementation.prepare(
+      prepareContext({ seedFiles }),
     );
 
-    expect(new Set([base.archive, revised.archive, reseeded.archive]).size).toBe(3);
+    expect(new Set([base.archive, revised.archive, rebased.archive]).size).toBe(3);
   });
 
   test("a failing prepare caches nothing and still destroys the build sandbox", async () => {
-    const { provider, implementation } = setup(undefined, {
-      prepare() {
-        throw new Error("apt exploded");
-      },
-    });
+    const { provider, implementation } = setup();
 
-    await expect(implementation.prepare(prepareContext())).rejects.toThrow("apt exploded");
+    await expect(
+      implementation.prepare(
+        prepareContext({
+          prepare() {
+            throw new Error("apt exploded");
+          },
+        }),
+      ),
+    ).rejects.toThrow("apt exploded");
 
     expect(provider.created[0]?.killed).toBe(true);
     expect(existsSync(path.join(cacheDir, "templates"))).toBe(false);
@@ -154,37 +187,12 @@ describe("prepare", () => {
     });
   });
 
-  test("creates every sandbox, the build one included, with the environment's public traffic setting", async () => {
-    const { provider, implementation, start } = setup(undefined, { allowPublicTraffic: false });
+  test("sets eve's agent env beneath the environment's env", async () => {
+    const { provider, implementation } = setup(undefined, { env: { AI_AGENT: "mine", A: "1" } });
 
-    const artifact = await templateWith(implementation);
-    await start(artifact);
+    await templateWith(implementation);
 
-    expect(provider.created).toHaveLength(2);
-    for (const { createOptions } of provider.created) {
-      expect(createOptions.allowPublicTraffic).toBe(false);
-    }
-  });
-
-  test("a replacement sandbox keeps public traffic closed", async () => {
-    const { provider, implementation, start, resume } = setup(undefined, {
-      allowPublicTraffic: false,
-    });
-    const artifact = await templateWith(implementation);
-    const { state } = await start(artifact);
-    await provider.sandboxes.get(state.sandboxId)?.kill();
-
-    await resume(state, artifact);
-
-    expect(provider.created.at(-1)?.createOptions.allowPublicTraffic).toBe(false);
-  });
-
-  test("leaves public traffic to the provider's default unless asked", async () => {
-    const { provider, start } = setup();
-
-    await start();
-
-    expect(provider.created[0]?.createOptions).not.toHaveProperty("allowPublicTraffic");
+    expect(provider.created[0]?.createOptions.envs).toEqual({ AI_AGENT: "mine", A: "1" });
   });
 
   test("reports progress through eve's log", async () => {
@@ -201,179 +209,204 @@ describe("prepare", () => {
 });
 
 describe("start", () => {
-  test("opens a fresh sandbox with /workspace prepared when there is no template", async () => {
+  test("creates the session's sandbox with /workspace prepared when there is no template", async () => {
     const { provider, start } = setup();
 
     await start();
 
-    expect(provider.created).toHaveLength(1);
-    expect(
-      provider.created[0]?.commands.some(
-        (c) => c.user === "root" && c.command.includes("mkdir -p /workspace"),
-      ),
-    ).toBe(true);
+    const sandbox = provider.created[0];
+    const setupCommand = sandbox?.commands.find((c) => c.command.includes("mkdir -p /workspace"));
+    expect(setupCommand?.user).toBe("root");
+    expect(setupCommand?.command).toContain("chown 'user': /workspace");
   });
 
   test("a session started from a template sees the template's files", async () => {
     const { implementation, start } = setup();
     const artifact = await templateWith(implementation);
 
-    const { handle } = await start(artifact);
+    const { sandbox } = await start(artifact);
 
-    expect(await handle.sandbox.readTextFile({ path: "seed.txt" })).toBe("from template");
+    expect(await sandbox.readText("seed.txt")).toBe("from template");
   });
 
-  test("fails with rebuild guidance when the template archive is not on this machine", async () => {
+  test("fails with eve's template error when the archive is not on this machine", async () => {
     const { provider, start } = setup();
 
-    const attempt = start({ archive: "0123456789abcdef0123456789abcdef.tgz" });
+    const failure = start({ archive: "0123.tgz" });
 
-    await expect(attempt).rejects.toMatchObject({
-      name: "SandboxTemplateNotProvisionedError",
-      providerName: "aliyun",
-      message: expect.stringMatching(/cacheDir/),
-    });
+    await expect(failure).rejects.toSatisfy(SandboxTemplateNotProvisionedError.is);
+    await expect(failure).rejects.toThrow(/ship cacheDir/);
     expect(provider.created).toHaveLength(0);
   });
 
-  test("records plain-JSON state naming the sandbox and a session key of its own", async () => {
-    const { provider, start } = setup();
+  test("records plain-JSON state naming the sandbox and the env it was created with", async () => {
+    const { start } = setup();
 
-    const { state } = await start(undefined, undefined, "eve-session-7");
+    const { state } = await start(undefined, { env: { TOKEN: "t" } });
 
-    expect(state).toEqual({
-      version: 1,
-      sessionKey: expect.stringMatching(/^eve-session-7\./),
-      sandboxId: provider.created[0]?.id,
-      env: {},
-      network: null,
-    });
+    expect(state).toEqual({ version: 2, sandboxId: "sbx-1", env: { TOKEN: "t" } });
     expect(JSON.parse(JSON.stringify(state))).toEqual(state);
   });
 
   test("labels the sandbox with its session and the environment's metadata", async () => {
     const { provider, start } = setup(undefined, { metadata: { agent: "support" } });
 
-    const { state } = await start(undefined, undefined, "eve-session-7");
+    await start(undefined, undefined, "session-9");
 
     expect(provider.created[0]?.createOptions.metadata).toEqual({
       agent: "support",
-      eveSessionId: "eve-session-7",
-      eveSessionKey: state.sessionKey,
+      eveSessionId: "session-9",
     });
   });
 
-  test("each start owns a new sandbox, even within one eve session", async () => {
-    // A start that crashed before eve recorded its state must not be adopted
-    // later: its sandbox is an orphan, and only its idle timeout reclaims it.
+  test("a second start for the session returns the same sandbox and the env it was created with", async () => {
+    const { provider, start } = setup();
+    const first = await start(undefined, { env: { TOKEN: "first" } });
+
+    const second = await start(undefined, { env: { TOKEN: "second" }, networkPolicy: "deny-all" });
+
+    expect(provider.created).toHaveLength(1);
+    expect(second.state).toEqual(first.state);
+    await second.sandbox.run({ command: "true" });
+    expect(provider.created[0]?.commands.at(-1)?.envs).toEqual({ TOKEN: "first" });
+  });
+
+  test("other sessions get their own sandbox", async () => {
     const { provider, start } = setup();
 
-    const first = await start(undefined, undefined, "s");
-    const second = await start(undefined, undefined, "s");
+    await start(undefined, undefined, "a");
+    await start(undefined, undefined, "b");
 
     expect(provider.created).toHaveLength(2);
-    expect(second.state.sessionKey).not.toBe(first.state.sessionKey);
+  });
+
+  test("never adopts a sandbox whose creation did not finish", async () => {
+    const { provider, start } = setup();
+    const halfBuilt = await provider.create({
+      template: "t",
+      timeoutMs: 1,
+      metadata: { eveSessionId: "session-1" },
+    });
+
+    const { state } = await start();
+
+    expect(state.sandboxId).not.toBe(halfBuilt.id);
+    expect(halfBuilt.killed).toBe(false);
+  });
+
+  test("a sandbox whose restore failed is destroyed, not left for a later start", async () => {
+    const { provider, implementation, start } = setup(
+      createFakeLinuxShell({
+        onCommand: (command) =>
+          command.command.includes("-xzpf") ? { exitCode: 2, stderr: "tar: corrupt\n" } : undefined,
+      }),
+    );
+    const artifact = await templateWith(implementation);
+
+    await expect(start(artifact)).rejects.toThrow("corrupt");
+    expect(provider.created.at(-1)?.killed).toBe(true);
   });
 
   test("rejects an artifact this provider did not prepare", async () => {
     const { start } = setup();
 
-    await expect(start({ snapshotId: "x" } as never)).rejects.toThrow(/artifact/);
+    await expect(start({ snapshotId: "x" } as never)).rejects.toThrow("invalid prepared artifact");
   });
 });
 
 describe("resume", () => {
-  test("reattaches to the recorded sandbox instead of creating a new one", async () => {
+  test("reconnects to the recorded sandbox", async () => {
     const { provider, start, resume } = setup();
-    const { handle, state } = await start();
-    await handle.sandbox.writeTextFile({ path: "kept.txt", content: "still here" });
+    const { sandbox, state } = await start();
+    await sandbox.writeText("work.txt", "in progress");
 
     const resumed = await resume(state);
 
     expect(provider.created).toHaveLength(1);
-    expect(await resumed.sandbox.readTextFile({ path: "kept.txt" })).toBe("still here");
+    expect(await resumed.sandbox.readText("work.txt")).toBe("in progress");
   });
 
-  test("replaces a sandbox the provider destroyed with a fresh one from the template", async () => {
-    const { provider, implementation, start, resume } = setup();
-    const artifact = await templateWith(implementation);
-    const { state } = await start(artifact);
-    await provider.sandboxes.get(state.sandboxId)?.kill();
-
-    const resumed = await resume(state, artifact);
-
-    expect(provider.created.at(-1)?.id).not.toBe(state.sandboxId);
-    expect(await resumed.sandbox.readTextFile({ path: "seed.txt" })).toBe("from template");
-  });
-
-  test("later resumes find the replacement by session key", async () => {
+  test("reports a sandbox the provider destroyed as gone, and creates nothing", async () => {
     const { provider, start, resume } = setup();
     const { state } = await start();
-    await provider.sandboxes.get(state.sandboxId)?.kill();
-    await resume(state);
+    await provider.kill(state.sandboxId);
 
-    await resume(state);
+    await expect(resume(state)).rejects.toSatisfy(SandboxSessionGoneError.is);
+    expect(provider.created).toHaveLength(1);
+  });
 
-    expect(provider.created).toHaveLength(2);
+  test("the session env from state reaches every command", async () => {
+    const { provider, start, resume } = setup(undefined, { env: { BASE: "env" } });
+    const { state } = await start(undefined, { env: { TOKEN: "session" } });
+
+    const { sandbox } = await resume(state);
+    await sandbox.run({ command: "true", env: { CALL: "1" } });
+
+    expect(provider.created[0]?.commands.at(-1)?.envs).toEqual({
+      BASE: "env",
+      TOKEN: "session",
+      CALL: "1",
+    });
+  });
+
+  test("the environment's env is read at resume, so a redeploy's change takes effect", async () => {
+    const provider = new FakeProvider(createFakeLinuxShell());
+    const before = createAliyunSandboxImplementation({
+      provider,
+      createOptions: { cacheDir, env: { MODE: "old" } },
+    });
+    const after = createAliyunSandboxImplementation({
+      provider,
+      createOptions: { cacheDir, env: { MODE: "new" } },
+    });
+    const { state } = await before.start(sessionContext(), undefined, NO_TEMPLATE);
+
+    await sessionOver(await after.resume(sessionContext(), NO_TEMPLATE, state)).run({
+      command: "true",
+    });
+
+    expect(provider.created[0]?.commands.at(-1)?.envs).toEqual({ MODE: "new" });
   });
 
   test("rejects state this provider did not write", async () => {
-    const { provider, resume } = setup();
+    const { resume } = setup();
 
-    await expect(resume({ sandboxName: "x", version: 3 } as never)).rejects.toThrow(/state/);
-    await expect(
-      resume({
-        version: 1,
-        sessionKey: "k",
-        sandboxId: "s",
-        env: { BAD: 1 },
-        network: null,
-      } as never),
-    ).rejects.toThrow(/state/);
-    expect(provider.created).toHaveLength(0);
+    await expect(resume({ version: 3, sandboxId: "x", env: {} })).rejects.toThrow(
+      "invalid session state",
+    );
   });
 });
 
-describe("handle lifecycle", () => {
-  test("stop pauses the sandbox where the account supports it, and the session resumes intact", async () => {
+describe("stop and idle", () => {
+  test("stop pauses where the account supports it, and resume reconnects intact", async () => {
     const { provider, start, resume } = setup();
     provider.pauseSupported = true;
-    const { handle, state } = await start();
-    await handle.sandbox.writeTextFile({ path: "work.txt", content: "in progress" });
+    const { connection, sandbox, state } = await start();
+    await sandbox.writeText("work.txt", "in progress");
 
-    await handle.onSandboxStop();
+    await connection.stop();
 
     expect(provider.created[0]?.paused).toBe(true);
     expect(provider.created[0]?.killed).toBe(false);
-    const resumed = await resume(state);
+    expect(await (await resume(state)).sandbox.readText("work.txt")).toBe("in progress");
     expect(provider.created).toHaveLength(1);
-    expect(await resumed.sandbox.readTextFile({ path: "work.txt" })).toBe("in progress");
   });
 
-  test("stop without pause support checkpoints the session and releases the compute", async () => {
-    const { provider, start, resume } = setup();
-    const { handle, state } = await start();
-    await handle.sandbox.writeTextFile({ path: "work.txt", content: "in progress" });
-
-    await handle.onSandboxStop();
-
-    expect(provider.created[0]?.killed).toBe(true);
-    expect(provider.sandboxes.size).toBe(0);
-    const resumed = await resume(state);
-    expect(provider.created).toHaveLength(2);
-    expect(await resumed.sandbox.readTextFile({ path: "work.txt" })).toBe("in progress");
-  });
-
-  test("a checkpoint wins over the template it grew from", async () => {
-    const { implementation, start, resume } = setup();
+  test("stop without pause checkpoints; resume reports the sandbox gone and the next start restores it", async () => {
+    const { provider, implementation, start, resume } = setup();
     const artifact = await templateWith(implementation);
-    const { handle, state } = await start(artifact);
-    await handle.sandbox.writeTextFile({ path: "seed.txt", content: "edited" });
-    await handle.onSandboxStop();
+    const first = await start(artifact);
+    await first.sandbox.writeText("seed.txt", "edited");
+    await first.sandbox.writeText("work.txt", "in progress");
 
-    const resumed = await resume(state, artifact);
+    await first.connection.stop();
 
-    expect(await resumed.sandbox.readTextFile({ path: "seed.txt" })).toBe("edited");
+    expect(provider.created[1]?.killed).toBe(true);
+    await expect(resume(first.state, artifact)).rejects.toSatisfy(SandboxSessionGoneError.is);
+    const next = await start(artifact);
+    expect(next.state.sandboxId).not.toBe(first.state.sandboxId);
+    expect(await next.sandbox.readText("work.txt")).toBe("in progress");
+    expect(await next.sandbox.readText("seed.txt")).toBe("edited");
   });
 
   test("stop kills running processes before releasing the sandbox", async () => {
@@ -381,10 +414,10 @@ describe("handle lifecycle", () => {
       onCommand: (command) => (command.command === "serve" ? { hang: true } : undefined),
     });
     const { start } = setup(shell);
-    const { handle } = await start();
-    const server = await handle.sandbox.spawn({ command: "serve" });
+    const { connection, sandbox } = await start();
+    const server = await sandbox.spawn({ command: "serve" });
 
-    await handle.onSandboxStop();
+    await connection.stop();
 
     expect(await server.wait()).toEqual({ exitCode: 137 });
   });
@@ -398,138 +431,155 @@ describe("handle lifecycle", () => {
           : undefined,
     });
     const { provider, start } = setup(shell);
-    const { handle } = await start();
+    const { connection } = await start();
     failCapture = true;
 
-    await expect(handle.onSandboxStop()).rejects.toThrow("disk full");
+    await expect(connection.stop()).rejects.toThrow("disk full");
     expect(provider.created[0]?.killed).toBe(false);
   });
 
-  test("runtime shutdown never throws, even when the provider fails", async () => {
-    const { provider, start } = setup();
-    const { handle } = await start();
-    const sandbox = provider.created[0];
-    if (sandbox) sandbox.startCommand = async () => Promise.reject(new Error("provider down"));
+  test("idle releases a running sandbox: pause where supported", async () => {
+    const { provider, start, idle } = setup();
+    provider.pauseSupported = true;
+    const { state } = await start();
 
-    await expect(handle.onRuntimeShutdown()).resolves.toBeUndefined();
+    await idle(state);
+
+    expect(provider.created[0]?.paused).toBe(true);
   });
 
-  test("delete destroys the sandbox and its checkpoint, so a new start begins from the template", async () => {
-    const { provider, implementation, start, resume } = setup();
-    const artifact = await templateWith(implementation);
-    const first = await start(artifact);
-    await first.handle.sandbox.writeTextFile({ path: "work.txt", content: "in progress" });
-    await first.handle.onSandboxStop();
-    const resumed = await resume(first.state, artifact);
+  test("idle without pause checkpoints and destroys, so the session continues from it", async () => {
+    const { provider, start, idle } = setup();
+    const { sandbox, state } = await start();
+    await sandbox.writeText("work.txt", "in progress");
 
-    await resumed.onSandboxDelete();
+    await idle(state);
 
-    expect(provider.sandboxes.size).toBe(0);
-    expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
-    const fresh = await start(artifact);
-    expect(await fresh.handle.sandbox.readTextFile({ path: "work.txt" })).toBeNull();
-    expect(await fresh.handle.sandbox.readTextFile({ path: "seed.txt" })).toBe("from template");
+    expect(provider.created[0]?.killed).toBe(true);
+    expect(await (await start()).sandbox.readText("work.txt")).toBe("in progress");
   });
 
-  test("delete honours an already aborted signal", async () => {
-    const { provider, start } = setup();
-    const { handle } = await start();
-    const abort = new AbortController();
-    abort.abort(new Error("cancelled"));
+  test("idle never resumes a paused sandbox", async () => {
+    const { provider, start, idle } = setup();
+    provider.pauseSupported = true;
+    const { state } = await start();
+    await idle(state);
+    const connect = provider.connect.bind(provider);
+    const connected: string[] = [];
+    provider.connect = async (id) => {
+      connected.push(id);
+      return await connect(id);
+    };
 
-    await expect(handle.onSandboxDelete({ abortSignal: abort.signal })).rejects.toThrow(
-      "cancelled",
-    );
-    expect(provider.created[0]?.killed).toBe(false);
+    await idle(state);
+
+    expect(connected).toEqual([]);
+    expect(provider.created[0]?.paused).toBe(true);
+  });
+
+  test("idle releases only the recorded sandbox, so another one cannot overwrite its checkpoint", async () => {
+    const { provider, start, idle } = setup();
+    const { sandbox, state } = await start();
+    await sandbox.writeText("work.txt", "recorded");
+    const other = await provider.create({
+      template: "t",
+      timeoutMs: 1,
+      metadata: { eveSessionId: "session-1" },
+    });
+    other.files.set("/workspace/work.txt", new TextEncoder().encode("stale"));
+
+    await idle(state);
+
+    expect(provider.created[0]?.killed).toBe(true);
+    expect(other.killed).toBe(false);
+    expect(await (await start()).sandbox.readText("work.txt")).toBe("recorded");
+  });
+
+  test("idle finds the session's sandbox without state, and succeeds when there is none", async () => {
+    const { provider, start, idle } = setup();
+    provider.pauseSupported = true;
+    await start();
+
+    await idle(null);
+    expect(provider.created[0]?.paused).toBe(true);
+
+    await setup().idle(null);
   });
 });
 
 describe("session end", () => {
-  async function endSession(
-    implementation: ReturnType<typeof setup>["implementation"],
-    state: AliyunSandboxSessionState,
-    artifact: AliyunSandboxPreparedArtifact = NO_TEMPLATE,
-  ) {
-    await implementation.onSessionEnd?.(sessionContext(), artifact, state, { reason: "completed" });
-  }
+  test("destroys the sandbox and its checkpoint, so a new start begins from the template", async () => {
+    const { provider, implementation, start, end } = setup();
+    const artifact = await templateWith(implementation);
+    const first = await start(artifact);
+    await first.sandbox.writeText("work.txt", "in progress");
+    await first.connection.stop();
+    const second = await start(artifact);
 
-  test("destroys a stopped session's checkpoint without creating a sandbox to do it", async () => {
-    const { provider, implementation, start } = setup();
-    const { handle, state } = await start();
-    await handle.sandbox.writeTextFile({ path: "work.txt", content: "in progress" });
-    await handle.onSandboxStop();
+    await end(second.state);
 
-    await endSession(implementation, state);
-
-    expect(provider.created).toHaveLength(1);
+    expect(provider.sandboxes.size).toBe(0);
     expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
+    const fresh = await start(artifact);
+    expect(await fresh.sandbox.readText("work.txt")).toBeNull();
+    expect(await fresh.sandbox.readText("seed.txt")).toBe("from template");
   });
 
   test("destroys a paused sandbox without resuming it first", async () => {
-    const { provider, implementation, start } = setup();
+    const { provider, start, end } = setup();
     provider.pauseSupported = true;
-    const { handle, state } = await start();
-    await handle.onSandboxStop();
+    const { connection, state } = await start();
+    await connection.stop();
+    provider.connect = async () => Promise.reject(new Error("must not connect"));
 
-    await endSession(implementation, state);
+    await end(state);
 
     expect(provider.created[0]?.killed).toBe(true);
-    expect(provider.created[0]?.paused).toBe(true);
-    expect(provider.sandboxes.size).toBe(0);
   });
 
-  test("destroys a replacement sandbox found by session key", async () => {
-    const { provider, implementation, start, resume } = setup();
-    const { state } = await start();
-    await provider.created[0]?.kill();
-    await resume(state);
+  test("without state, finds the session's sandboxes by label, half-built ones included", async () => {
+    const { provider, start, end } = setup();
+    await start();
+    const halfBuilt = await provider.create({
+      template: "t",
+      timeoutMs: 1,
+      metadata: { eveSessionId: "session-1" },
+    });
 
-    await endSession(implementation, state);
+    await end(null);
 
-    expect(provider.created).toHaveLength(2);
-    expect(provider.sandboxes.size).toBe(0);
+    expect(provider.created[0]?.killed).toBe(true);
+    expect(halfBuilt.killed).toBe(true);
   });
 
   test("leaves other sessions' sandboxes alone", async () => {
-    const { provider, implementation, start } = setup();
-    const { state } = await start(NO_TEMPLATE, undefined, "session-1");
-    const other = await start(NO_TEMPLATE, undefined, "session-2");
+    const { provider, start, end } = setup();
+    const mine = await start(undefined, undefined, "session-1");
+    await start(undefined, undefined, "session-2");
 
-    await endSession(implementation, state);
+    await end(mine.state, "session-1");
 
-    expect([...provider.sandboxes.keys()]).toEqual([other.state.sandboxId]);
+    expect(provider.created.map((s) => s.killed)).toEqual([true, false]);
   });
 
-  test("is idempotent, because eve may retry the cleanup step", async () => {
-    const { provider, implementation, start } = setup();
+  test("is idempotent, because eve retries the cleanup step", async () => {
+    const { start, end } = setup();
     const { state } = await start();
 
-    await endSession(implementation, state);
-    await endSession(implementation, state);
-
-    expect(provider.sandboxes.size).toBe(0);
-    expect(provider.created).toHaveLength(1);
-  });
-
-  test("works when the template archive is no longer on this machine", async () => {
-    const { provider, implementation, start } = setup();
-    const artifact = await templateWith(implementation);
-    const { state } = await start(artifact);
-    await rm(path.join(cacheDir, "templates"), { force: true, recursive: true });
-
-    await endSession(implementation, state, artifact);
-
-    expect(provider.sandboxes.size).toBe(0);
+    await end(state);
+    await end(state);
+    await setup().end(null);
   });
 
   test("a failed kill does not stop the others, and the retry finishes with the checkpoint", async () => {
-    const { provider, implementation, start } = setup();
-    const { handle, state } = await start();
-    await handle.onSandboxStop();
+    const { provider, start, end } = setup();
+    const first = await start();
+    await first.connection.stop();
+    const { state } = await start();
     const orphan = await provider.create({
       template: "t",
       timeoutMs: 1,
-      metadata: { eveSessionKey: state.sessionKey },
+      metadata: { eveSessionId: "session-1" },
     });
     const kill = provider.kill.bind(provider);
     let failOnce = true;
@@ -541,20 +591,20 @@ describe("session end", () => {
       await kill(sandboxId);
     };
 
-    await expect(endSession(implementation, state)).rejects.toThrow("could not destroy");
+    await expect(end(state)).rejects.toThrow("could not destroy");
     expect(orphan.killed).toBe(true);
     expect(await readdir(path.join(cacheDir, "sessions"))).toHaveLength(1);
 
-    await endSession(implementation, state);
+    await end(state);
     expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
   });
 
-  test("still destroys the recorded sandbox when the lookup by session key fails", async () => {
-    const { provider, implementation, start } = setup();
+  test("still destroys the recorded sandbox when the lookup by label fails", async () => {
+    const { provider, start, end } = setup();
     const { state } = await start();
     provider.findByMetadata = async () => Promise.reject(new Error("list failed"));
 
-    await expect(endSession(implementation, state)).rejects.toThrow("could not destroy");
+    await expect(end(state)).rejects.toThrow("could not destroy");
     expect(provider.created[0]?.killed).toBe(true);
   });
 
@@ -565,37 +615,93 @@ describe("session end", () => {
     const capturing = new Promise<void>((resolve) => (captureStarted = resolve));
     const gate = new Promise<void>((resolve) => (finishCapture = resolve));
     const linux = createFakeLinuxShell();
-    const { implementation, start } = setup(async (command, sandbox) => {
+    const { start, end } = setup(async (command, sandbox) => {
       if (gated && command.command.includes("-czpf")) {
         captureStarted();
         await gate;
       }
       return await linux(command, sandbox);
     });
-    const { handle, state } = await start();
+    const { connection, state } = await start();
     gated = true;
 
-    const stopping = handle.onSandboxStop();
+    const stopping = connection.stop();
     await capturing;
-    const ending = endSession(implementation, state);
+    const ending = end(state);
     finishCapture();
     await Promise.all([stopping, ending]);
 
     expect(await readdir(path.join(cacheDir, "sessions"))).toEqual([]);
   });
 
-  test("rejects state this provider did not write", async () => {
-    const { implementation } = setup();
+  test("honours an already aborted signal", async () => {
+    const { provider, implementation, start } = setup();
+    const { state } = await start();
+    const abort = new AbortController();
+    abort.abort(new Error("cancelled"));
 
     await expect(
-      implementation.onSessionEnd?.(sessionContext(), NO_TEMPLATE, { version: 2 } as never, {
-        reason: "expired",
+      implementation.onSessionEnd(sessionContext(), state, {
+        reason: "deleted",
+        signal: abort.signal,
       }),
-    ).rejects.toThrow("invalid session state");
+    ).rejects.toThrow("cancelled");
+    expect(provider.created[0]?.killed).toBe(false);
+  });
+
+  test("rejects state this provider did not write", async () => {
+    const { end } = setup();
+
+    await expect(end({ version: 2 })).rejects.toThrow("invalid session state");
   });
 });
 
-describe("network policy", () => {
+describe("state recorded by 0.4", () => {
+  const legacy = (sandboxId: string) => ({
+    version: 1,
+    sessionKey: "session-1.key",
+    sandboxId,
+    env: { TOKEN: "legacy" },
+    network: null,
+  });
+
+  test("resume reconnects to the sandbox it names, with its env", async () => {
+    const { provider, resume } = setup();
+    const old = await provider.create({ template: "t", timeoutMs: 1, metadata: {} });
+
+    await (await resume(legacy(old.id))).sandbox.run({ command: "true" });
+
+    expect(old.commands.at(-1)?.envs).toEqual({ TOKEN: "legacy" });
+  });
+
+  test("a gone sandbox's checkpoint carries over to the session's next start", async () => {
+    const { resume, start } = setup();
+    const legacyPath = resolveSessionCheckpointPath(cacheDir, "session-1.key");
+    await mkdir(path.dirname(legacyPath), { recursive: true });
+    const snapshot = [["/workspace/work.txt", Buffer.from("kept").toString("base64")]];
+    await writeFile(legacyPath, JSON.stringify(snapshot));
+
+    await expect(resume(legacy("sbx-gone"))).rejects.toSatisfy(SandboxSessionGoneError.is);
+
+    expect(existsSync(legacyPath)).toBe(false);
+    expect(await (await start()).sandbox.readText("work.txt")).toBe("kept");
+  });
+
+  test("session end destroys sandboxes labelled with the 0.4 session key", async () => {
+    const { provider, end } = setup();
+    const old = await provider.create({
+      template: "t",
+      timeoutMs: 1,
+      metadata: { eveSessionKey: "session-1.key" },
+    });
+
+    await end(legacy("sbx-gone"));
+
+    expect(old.killed).toBe(true);
+  });
+});
+
+describe("network policy and public traffic", () => {
   test("sandboxes start with the environment's policy already in force", async () => {
     const { provider, start } = setup(undefined, { networkPolicy: "deny-all" });
 
@@ -620,46 +726,33 @@ describe("network policy", () => {
     });
   });
 
-  test("the environment's policy governs preparation too", async () => {
+  test("the environment's policy governs preparation, and prepare can tighten it", async () => {
     const { provider, implementation } = setup(undefined, {
       networkPolicy: { allow: ["deb.debian.org"] },
     });
 
-    await templateWith(implementation);
+    await implementation.prepare(
+      prepareContext({
+        async prepare(sandbox) {
+          await sandbox.setNetworkPolicy("deny-all");
+        },
+      }),
+    );
 
     expect(provider.created[0]?.createOptions.network?.allowOut).toEqual(["deb.debian.org"]);
-  });
-
-  test("prepare can tighten the policy for the rest of the template build", async () => {
-    const { provider, implementation } = setup(undefined, {
-      async prepare(sandbox) {
-        await sandbox.setNetworkPolicy("deny-all");
-      },
-    });
-
-    await implementation.prepare(prepareContext());
-
     expect(provider.created[0]?.network.denyOut).toEqual([ALL_TRAFFIC]);
   });
 
   test("open({ networkPolicy }) is in force from the moment the session's sandbox starts", async () => {
     const { provider, start } = setup();
 
-    const { state } = await start(undefined, { networkPolicy: { allow: ["api.example.com"] } });
+    await start(undefined, { networkPolicy: { allow: ["api.example.com"] } });
 
-    const expected = { allowOut: ["api.example.com"], denyOut: [ALL_TRAFFIC], rules: {} };
-    expect(provider.created[0]?.createOptions.network).toEqual(expected);
-    expect(state.network).toEqual(expected);
-  });
-
-  test("a replacement sandbox gets the session's policy, not the environment's", async () => {
-    const { provider, start, resume } = setup();
-    const { state } = await start(undefined, { networkPolicy: "deny-all" });
-    await provider.sandboxes.get(state.sandboxId)?.kill();
-
-    await resume(state);
-
-    expect(provider.created[1]?.createOptions.network?.denyOut).toEqual([ALL_TRAFFIC]);
+    expect(provider.created[0]?.createOptions.network).toEqual({
+      allowOut: ["api.example.com"],
+      denyOut: [ALL_TRAFFIC],
+      rules: {},
+    });
   });
 
   test("open rejects a policy the provider cannot express, before creating anything", async () => {
@@ -675,12 +768,10 @@ describe("network policy", () => {
 
   test("setNetworkPolicy changes egress on the live sandbox", async () => {
     const { provider, start } = setup();
-    const { handle } = await start();
+    const { sandbox } = await start();
 
-    await handle.sandbox.setNetworkPolicy({
-      allow: {
-        "github.com": [{ transform: [{ headers: { authorization: "Basic abc" } }] }],
-      },
+    await sandbox.setNetworkPolicy({
+      allow: { "github.com": [{ transform: [{ headers: { authorization: "Basic abc" } }] }] },
     });
 
     expect(provider.created[0]?.network).toEqual({
@@ -692,58 +783,43 @@ describe("network policy", () => {
 
   test("setNetworkPolicy rejects a policy the provider cannot express, leaving egress unchanged", async () => {
     const { provider, start } = setup();
-    const { handle } = await start();
+    const { sandbox } = await start();
 
     await expect(
-      handle.sandbox.setNetworkPolicy({
+      sandbox.setNetworkPolicy({
         allow: { "a.example.com": [{ forwardURL: "https://proxy.example.com" }] },
       }),
     ).rejects.toThrow(/forwardURL/);
     expect(provider.created[0]?.network.denyOut).toEqual([]);
   });
+
+  test("every sandbox, the build one and a restored one included, gets the public traffic setting", async () => {
+    const { provider, implementation, start } = setup(undefined, { allowPublicTraffic: false });
+    const artifact = await templateWith(implementation);
+    const first = await start(artifact);
+    await first.connection.stop();
+
+    await start(artifact);
+
+    expect(provider.created).toHaveLength(3);
+    for (const { createOptions } of provider.created) {
+      expect(createOptions.allowPublicTraffic).toBe(false);
+    }
+  });
+
+  test("leaves public traffic to the provider's default unless asked", async () => {
+    const { provider, start } = setup();
+
+    await start();
+
+    expect(provider.created[0]?.createOptions).not.toHaveProperty("allowPublicTraffic");
+  });
 });
 
-describe("session environment", () => {
-  function lastEnvs(provider: FakeProvider) {
-    return provider.created.at(-1)?.commands.at(-1)?.envs;
-  }
+test("the session file, written last, marks a ready sandbox and holds its env", async () => {
+  const { provider, start } = setup();
 
-  test("open({ env }) adds variables to every command; per-call env still wins", async () => {
-    const { provider, start } = setup(undefined, { env: { BASE: "factory", TOKEN: "factory" } });
-    const { handle } = await start(undefined, { env: { TOKEN: "session" } });
+  await start(undefined, { env: { TOKEN: "t" } });
 
-    await handle.sandbox.run({ command: "true" });
-    expect(lastEnvs(provider)).toEqual({ BASE: "factory", TOKEN: "session" });
-
-    await handle.sandbox.run({ command: "true", env: { TOKEN: "call" } });
-    expect(lastEnvs(provider)).toEqual({ BASE: "factory", TOKEN: "call" });
-  });
-
-  test("the session environment is recorded in state and reaches resumed and replacement sandboxes", async () => {
-    const { provider, start, resume } = setup();
-    const { state } = await start(undefined, { env: { TOKEN: "session" } });
-    expect(state.env).toEqual({ TOKEN: "session" });
-
-    await (await resume(state)).sandbox.run({ command: "true" });
-    expect(lastEnvs(provider)).toEqual({ TOKEN: "session" });
-
-    await provider.sandboxes.get(state.sandboxId)?.kill();
-    await (await resume(state)).sandbox.run({ command: "true" });
-    expect(provider.created).toHaveLength(2);
-    expect(lastEnvs(provider)).toEqual({ TOKEN: "session" });
-  });
-
-  test("the environment's env is read at resume, so a redeploy's change takes effect", async () => {
-    const before = setup(undefined, { env: { BASE: "old" } });
-    const { state } = await before.start();
-    const after = createAliyunSandboxImplementation({
-      provider: before.provider,
-      createOptions: { cacheDir, env: { BASE: "new" } },
-    });
-
-    const handle = await after.resume(sessionContext(), NO_TEMPLATE, state);
-    await handle.sandbox.run({ command: "true" });
-
-    expect(lastEnvs(before.provider)).toEqual({ BASE: "new" });
-  });
+  expect(provider.created[0]?.text(SESSION_FILE)).toBe('{"env":{"TOKEN":"t"}}');
 });

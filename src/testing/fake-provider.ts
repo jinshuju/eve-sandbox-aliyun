@@ -131,6 +131,12 @@ export class FakeProvider implements Provider {
     return sandbox;
   }
 
+  async getState(sandboxId: string): Promise<"running" | "paused" | null> {
+    const sandbox = this.sandboxes.get(sandboxId);
+    if (sandbox === undefined) return null;
+    return sandbox.paused ? "paused" : "running";
+  }
+
   async findByMetadata(metadata: Readonly<Record<string, string>>): Promise<string[]> {
     return [...this.sandboxes.values()]
       .filter((sandbox) =>
@@ -184,6 +190,7 @@ export function createFakeLinuxShell(options: FakeLinuxShellOptions = {}): FakeS
       sandbox.files.delete(archivePath);
       return {};
     }
+    if (script === 'printf %s "$HOME"') return { stdout: home };
     if (script.includes('"$HOME"')) return { stdout: `${home}\nuser\n` };
     return {};
   };

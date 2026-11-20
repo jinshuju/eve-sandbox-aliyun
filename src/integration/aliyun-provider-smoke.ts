@@ -7,9 +7,10 @@
  * its metadata and is destroyed in `finally`, and the run ends by listing what
  * is left so a leak is visible rather than silent.
  *
- * It drives the provider implementation the way eve does — prepare at build
- * time, start once per session, resume on every later access — without an eve
- * runtime around it.
+ * It drives the provider implementation the way eve 1.x does — prepare at build
+ * time with `populate()`, start once per session (and again after a sandbox is
+ * gone), resume on later access, stop, idle and session end — without an eve
+ * runtime around it. Commands go through the connection, as eve's session does.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -18,10 +19,21 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Sandbox } from "e2b";
 import type { SandboxNetworkPolicy } from "eve/sandbox";
+import { SandboxSessionGoneError, type SandboxSessionContext } from "eve/sandbox/provider";
 import { createAliyunEnvironment } from "../environment.js";
+import type {
+  AliyunSandboxImplementation,
+  AliyunSandboxPreparedArtifact,
+} from "../implementation.js";
 import { createE2bProvider, resolveAliyunConnection } from "../index.js";
 import { translateNetworkPolicy } from "../network-policy.js";
-import { prepareContext, sessionContext } from "../testing/eve-context.js";
+import type { AliyunSandboxOpenOptions } from "../options.js";
+import {
+  prepareContext,
+  sessionContext,
+  sessionOver,
+  type TestSession,
+} from "../testing/eve-context.js";
 
 const runId = `smoke-${randomUUID().slice(0, 8)}`;
 const connection = resolveAliyunConnection({});
@@ -32,18 +44,6 @@ const implementation = createAliyunEnvironment({
   timeoutMs: 10 * 60_000,
   env: { SMOKE_ENV: "from-environment" },
   metadata: { smokeRun: runId },
-  async prepare(sandbox) {
-    const setup = await sandbox.run({
-      command: [
-        "set -e",
-        "sudo apt-get update -qq",
-        "sudo apt-get install -y -qq jq >/dev/null",
-        `printf '#!/bin/sh\\necho eve-tool-ok\\n' | sudo tee /usr/local/bin/eve-tool >/dev/null`,
-        "sudo chmod +x /usr/local/bin/eve-tool",
-      ].join("\n"),
-    });
-    assert.equal(setup.exitCode, 0, setup.stderr || setup.stdout);
-  },
 });
 const closedEnvironment = createAliyunEnvironment({
   cacheDir,
@@ -52,15 +52,57 @@ const closedEnvironment = createAliyunEnvironment({
   allowPublicTraffic: false,
 });
 const context = sessionContext(`${runId}-session`);
+const openOptions: AliyunSandboxOpenOptions = { env: { SMOKE_TOKEN: "per session" } };
 const seedFiles = [
   { path: "/workspace/seed/schema.sql", content: "create table t;\n" },
   { path: "$HOME/.agents/skills/demo/SKILL.md", content: Buffer.from("# demo skill\n") },
 ];
+async function prepare(sandbox: TestSession): Promise<void> {
+  const setup = await sandbox.run({
+    command: [
+      "set -e",
+      "sudo apt-get update -qq",
+      "sudo apt-get install -y -qq jq >/dev/null",
+      `printf '#!/bin/sh\\necho eve-tool-ok\\n' | sudo tee /usr/local/bin/eve-tool >/dev/null`,
+      "sudo chmod +x /usr/local/bin/eve-tool",
+    ].join("\n"),
+  });
+  assert.equal(setup.exitCode, 0, setup.stderr || setup.stdout);
+}
 
 async function check(name: string, fn: () => Promise<void>): Promise<void> {
   const startedAt = Date.now();
   await fn();
   console.log(`  ok  ${name} (${Date.now() - startedAt} ms)`);
+}
+
+const sandboxesOf = (sessionId: string) => provider.findByMetadata({ eveSessionId: sessionId });
+
+/**
+ * What eve does on access: resume the recorded sandbox, and when resume says it
+ * is gone, run the selector again, which starts the session's next sandbox.
+ */
+async function access(
+  environment: AliyunSandboxImplementation,
+  ctx: SandboxSessionContext,
+  artifact: AliyunSandboxPreparedArtifact,
+  state: Parameters<AliyunSandboxImplementation["resume"]>[2],
+): Promise<{
+  how: "reconnected" | "started";
+  connection: Awaited<ReturnType<typeof environment.resume>>;
+  state: typeof state;
+}> {
+  try {
+    return {
+      how: "reconnected",
+      connection: await environment.resume(ctx, artifact, state),
+      state,
+    };
+  } catch (error) {
+    if (!SandboxSessionGoneError.is(error)) throw error;
+    const started = await environment.start(ctx, openOptions, artifact);
+    return { how: "started", connection: started.connection, state: started.state };
+  }
 }
 
 /**
@@ -89,11 +131,9 @@ async function assertPortsClosed(sandboxId: string, policy: SandboxNetworkPolicy
   assert.equal(await status({}), 403, "and refuses without it");
 }
 
-const sandboxesOf = (sessionKey: string) => provider.findByMetadata({ eveSessionKey: sessionKey });
-
 try {
   const artifact = await implementation.prepare(
-    prepareContext({ seedFiles, log: (message) => console.log(`      ${message}`) }),
+    prepareContext({ seedFiles, prepare, log: (message) => console.log(`      ${message}`) }),
   );
 
   await check("prepare captured a template, including root-level changes", async () => {
@@ -103,26 +143,22 @@ try {
   await check("prepare reuses the captured template", async () => {
     const messages: string[] = [];
     const again = await implementation.prepare(
-      prepareContext({ seedFiles, log: (message) => messages.push(message) }),
+      prepareContext({ seedFiles, prepare, log: (message) => messages.push(message) }),
     );
     assert.deepEqual(again, artifact);
     assert.match(messages.at(-1) ?? "", /^reusing /);
   });
 
-  const started = await implementation.start(
-    context,
-    { env: { SMOKE_TOKEN: "per session" } },
-    artifact,
-  );
-  const { state } = started;
-  let handle = started.handle;
-  let session = handle.sandbox;
+  const started = await implementation.start(context, openOptions, artifact);
+  let { state } = started;
+  let session = sessionOver(started.connection);
+  let live = started.connection;
 
   await check(
     "commands run as the unprivileged user, in /workspace, through a login shell",
     async () => {
       const result = await session.run({
-        command: `whoami; pwd; shopt -q login_shell && echo login; echo "$SMOKE_ENV"; sudo -n true && echo sudo-ok`,
+        command: `whoami; pwd; shopt -q login_shell && echo login; echo "$SMOKE_ENV"; echo "$AI_AGENT"; sudo -n true && echo sudo-ok`,
       });
       assert.equal(result.exitCode, 0, result.stderr);
       assert.deepEqual(result.stdout.trim().split("\n"), [
@@ -130,6 +166,7 @@ try {
         "/workspace",
         "login",
         "from-environment",
+        "eve",
         "sudo-ok",
       ]);
     },
@@ -138,7 +175,7 @@ try {
   await check(
     "a session starts from the template: seeds, skills, and installed software",
     async () => {
-      assert.equal(await session.readTextFile({ path: "seed/schema.sql" }), "create table t;\n");
+      assert.equal(await session.readText("seed/schema.sql"), "create table t;\n");
       const result = await session.run({
         command: `cat "$HOME/.agents/skills/demo/SKILL.md"; eve-tool; echo '{"a":42}' | jq .a; stat -c %U /workspace/seed/schema.sql`,
       });
@@ -155,28 +192,23 @@ try {
   await check("run reports a nonzero exit, separate streams, per-call env and cwd", async () => {
     await session.run({ command: "mkdir -p sub" });
     const result = await session.run({
-      command: `echo out; echo err >&2; echo "$CALL_ENV"; pwd; exit 7`,
+      command: `echo out; echo err >&2; echo "$CALL_ENV"; echo "$SMOKE_TOKEN"; pwd; exit 7`,
       env: { CALL_ENV: "per-call" },
       workingDirectory: "sub",
     });
     assert.deepEqual(result, {
       exitCode: 7,
-      stdout: "out\nper-call\n/workspace/sub\n",
+      stdout: "out\nper-call\nper session\n/workspace/sub\n",
       stderr: "err\n",
     });
   });
 
-  await check("files round-trip byte-exactly, with line ranges and null for missing", async () => {
+  await check("files round-trip byte-exactly, and a missing file reads as null", async () => {
     const bytes = new Uint8Array([0, 255, 254, 10, 13, 128]);
-    await session.writeBinaryFile({ path: "data/blob.bin", content: bytes });
-    assert.deepEqual(await session.readBinaryFile({ path: "data/blob.bin" }), bytes);
-    await session.writeTextFile({ path: "data/lines.txt", content: "one\ntwo\nthree\n" });
-    assert.equal(
-      await session.readTextFile({ path: "data/lines.txt", startLine: 2, endLine: 2 }),
-      "two\n",
-    );
-    assert.equal(await session.readTextFile({ path: "data/absent.txt" }), null);
-    assert.equal(await session.readBinaryFile({ path: "/nonexistent/x" }), null);
+    await session.writeBytes("data/blob.bin", bytes);
+    assert.deepEqual(await session.readBytes("data/blob.bin"), bytes);
+    assert.equal(await session.readText("data/absent.txt"), null);
+    assert.equal(await session.readBytes("/nonexistent/x"), null);
   });
 
   await check("removePath follows rm semantics", async () => {
@@ -184,7 +216,7 @@ try {
     await session.removePath({ path: "data/absent.txt", force: true });
     await assert.rejects(session.removePath({ path: "data" }));
     await session.removePath({ path: "data", recursive: true });
-    assert.equal(await session.readTextFile({ path: "data/lines.txt" }), null);
+    assert.equal(await session.readText("data/blob.bin"), null);
   });
 
   // A consumer that closes its port URLs to requests without the traffic token.
@@ -209,43 +241,35 @@ try {
     await check(
       `allowPublicTraffic: false keeps port URLs closed ${label}, across setNetworkPolicy`,
       async () => {
+        const closedContext = sessionContext(`${runId}-closed-${index}`);
         const closed = await closedEnvironment.start(
-          sessionContext(`${runId}-closed-${index}`),
+          closedContext,
           networkPolicy === undefined ? undefined : { networkPolicy },
           closedArtifact,
         );
         try {
-          const serve = await closed.handle.sandbox.run({
+          const closedSession = sessionOver(closed.connection);
+          const serve = await closedSession.run({
             command: "nohup python3 -m http.server 8080 >/dev/null 2>&1 &",
           });
           assert.equal(serve.exitCode, 0, serve.stderr);
           await assertPortsClosed(closed.state.sandboxId, networkPolicy ?? "allow-all");
           for (const [, policy] of egressUpdates) {
-            await closed.handle.sandbox.setNetworkPolicy(policy);
+            await closedSession.setNetworkPolicy(policy);
             await assertPortsClosed(closed.state.sandboxId, policy);
           }
         } finally {
-          await closed.handle.onSandboxDelete();
+          await closedEnvironment.onSessionEnd(closedContext, closed.state, {
+            reason: "deleted",
+          });
         }
       },
     );
   }
 
-  await check("spawn streams output, and kill ends the process and its children", async () => {
-    const proc = await session.spawn({ command: "echo ready; sleep 600 & wait" });
-    const reader = proc.stdout.getReader();
-    assert.equal(new TextDecoder().decode((await reader.read()).value), "ready\n");
-    reader.releaseLock();
-    await proc.kill();
-    await proc.kill();
-    assert.notEqual((await proc.wait()).exitCode, 0);
-    const left = await session.run({ command: `pgrep -af "sleep 600" || echo none` });
-    assert.equal(left.stdout.trim(), "none");
-  });
-
   await check("an abort signal stops a running command", async () => {
     const abort = new AbortController();
-    const running = session.run({ command: "sleep 600", abortSignal: abort.signal });
+    const running = session.run({ command: "sleep 600", signal: abort.signal });
     setTimeout(() => abort.abort(), 1500);
     assert.notEqual((await running).exitCode, 0);
   });
@@ -269,70 +293,115 @@ try {
     },
   );
 
-  await check("open({ env }) reaches commands and the next resume's handle", async () => {
-    assert.equal(
-      (await session.run({ command: 'printf %s "$SMOKE_TOKEN"' })).stdout,
-      "per session",
-    );
-    const next = await implementation.resume(context, artifact, state);
-    const result = await next.sandbox.run({ command: 'printf %s "$SMOKE_TOKEN"' });
-    assert.equal(result.stdout, "per session");
+  await check(
+    "a second start for the session returns its sandbox, with the env it was created with",
+    async () => {
+      const again = await implementation.start(
+        context,
+        { env: { SMOKE_TOKEN: "other" } },
+        artifact,
+      );
+      assert.equal(again.state.sandboxId, state.sandboxId);
+      const result = await sessionOver(again.connection).run({
+        command: 'printf %s "$SMOKE_TOKEN"',
+      });
+      assert.equal(result.stdout, "per session");
+      assert.deepEqual(await sandboxesOf(context.session.id), [state.sandboxId]);
+    },
+  );
+
+  await check("resume reconnects to the live sandbox", async () => {
+    await session.writeText("work.txt", "in progress\n");
+    const again = sessionOver(await implementation.resume(context, artifact, state));
+    assert.equal(await again.readText("work.txt"), "in progress\n");
+    assert.equal((await again.run({ command: 'printf %s "$SMOKE_TOKEN"' })).stdout, "per session");
   });
 
-  await check("resume reattaches to the live sandbox", async () => {
-    await session.writeTextFile({ path: "work.txt", content: "in progress\n" });
-    const again = await implementation.resume(context, artifact, state);
-    assert.equal(await again.sandbox.readTextFile({ path: "work.txt" }), "in progress\n");
-    assert.deepEqual(await sandboxesOf(state.sessionKey), [state.sandboxId]);
-  });
+  await check(
+    "stop releases the compute, and the next access continues with its files",
+    async () => {
+      await live.stop();
+      await assert.rejects(session.run({ command: "echo late" }), /stopped/);
+      const next = await access(implementation, context, artifact, state);
+      console.log(
+        `      ${next.how === "reconnected" ? "resumed by pause" : "restored from checkpoint"}`,
+      );
+      ({ state, connection: live } = next);
+      session = sessionOver(live);
+      assert.equal(await session.readText("work.txt"), "in progress\n");
+      const result = await session.run({
+        command: `printf '%s\\n' "$SMOKE_TOKEN"; eve-tool; echo '{"a":7}' | jq .a`,
+      });
+      assert.equal(result.stdout, "per session\neve-tool-ok\n7\n");
+    },
+  );
 
-  await check("stop releases the compute and the session resumes with its state", async () => {
-    await handle.onSandboxStop();
-    const stale = session;
-    await assert.rejects(async () => await stale.run({ command: "echo late" }), /stopped/);
-    handle = await implementation.resume(context, artifact, state);
-    session = handle.sandbox;
-    const [resumedId] = await sandboxesOf(state.sessionKey);
-    console.log(
-      `      ${resumedId === state.sandboxId ? "resumed by pause" : "restored from checkpoint"}`,
+  await check("a sandbox lost to the provider is reported gone and replaced by start", async () => {
+    const lost = state.sandboxId;
+    await provider.kill(lost);
+    await assert.rejects(
+      implementation.resume(context, artifact, state),
+      SandboxSessionGoneError.is,
     );
-    assert.equal(await session.readTextFile({ path: "work.txt" }), "in progress\n");
-    assert.equal(
-      (await session.run({ command: 'printf %s "$SMOKE_TOKEN"' })).stdout,
-      "per session",
-    );
-    const result = await session.run({ command: `eve-tool; echo '{"a":7}' | jq .a` });
-    assert.equal(result.stdout, "eve-tool-ok\n7\n");
-  });
-
-  await check("a sandbox lost to the provider is replaced, keeping the session's env", async () => {
-    const [liveId] = await sandboxesOf(state.sessionKey);
-    assert.ok(liveId, "the session has a live sandbox");
-    await (await provider.connect(liveId))?.kill();
-    handle = await implementation.resume(context, artifact, state);
-    session = handle.sandbox;
-    const [replacementId] = await sandboxesOf(state.sessionKey);
-    assert.ok(replacementId !== undefined && replacementId !== liveId, "a new sandbox");
+    const next = await access(implementation, context, artifact, state);
+    assert.equal(next.how, "started");
+    assert.notEqual(next.state.sandboxId, lost);
+    ({ state, connection: live } = next);
+    session = sessionOver(live);
     const result = await session.run({ command: 'eve-tool; printf %s "$SMOKE_TOKEN"' });
     assert.equal(result.stdout, "eve-tool-ok\nper session");
   });
 
-  await check("delete destroys the sandbox for good", async () => {
-    await handle.onSandboxDelete();
-    assert.deepEqual(await sandboxesOf(state.sessionKey), []);
+  await check("idle stops a running sandbox and never wakes a stopped one", async () => {
+    await session.writeText("idle.txt", "kept\n");
+    await implementation.onSessionIdle?.(context, state, {});
+    const status = await provider.getState(state.sandboxId);
+    assert.notEqual(status, "running", "the sandbox no longer runs");
+    await implementation.onSessionIdle?.(context, state, {});
+    assert.equal(await provider.getState(state.sandboxId), status, "a second idle changes nothing");
+    const next = await access(implementation, context, artifact, state);
+    ({ state, connection: live } = next);
+    session = sessionOver(live);
+    assert.equal(await session.readText("idle.txt"), "kept\n");
   });
 
-  await check("session end destroys a stopped session's sandbox by id", async () => {
-    const ended = await implementation.start(context, undefined, artifact);
-    await ended.handle.onSandboxStop();
-    await implementation.onSessionEnd?.(context, artifact, ended.state, { reason: "completed" });
-    assert.deepEqual(await sandboxesOf(ended.state.sessionKey), []);
+  await check("session end destroys the session's sandboxes", async () => {
+    await implementation.onSessionEnd(context, state, { reason: "deleted" });
+    assert.deepEqual(await sandboxesOf(context.session.id), []);
+  });
+
+  await check("session end without state destroys a stopped session's sandbox", async () => {
+    const endedContext = sessionContext(`${runId}-ended`);
+    const ended = await implementation.start(endedContext, undefined, artifact);
+    await ended.connection.stop();
+    await implementation.onSessionEnd(endedContext, null, { reason: "completed" });
+    assert.deepEqual(await sandboxesOf(endedContext.session.id), []);
+  });
+
+  // Last: known to fail on this account (the `sleep` child outlives the kill).
+  await check("spawn streams output, and kill ends the process and its children", async () => {
+    const killContext = sessionContext(`${runId}-kill`);
+    const killed = await implementation.start(killContext, undefined, artifact);
+    try {
+      const killSession = sessionOver(killed.connection);
+      const proc = await killSession.spawn({ command: "echo ready; sleep 600 & wait" });
+      const reader = proc.stdout.getReader();
+      assert.equal(new TextDecoder().decode((await reader.read()).value), "ready\n");
+      reader.releaseLock();
+      await proc.kill();
+      await proc.kill();
+      assert.notEqual((await proc.wait()).exitCode, 0);
+      const left = await killSession.run({ command: `pgrep -af "sleep 600" || echo none` });
+      assert.equal(left.stdout.trim(), "none");
+    } finally {
+      await implementation.onSessionEnd(killContext, killed.state, { reason: "deleted" });
+    }
   });
 
   console.log("ALIYUN SMOKE OK");
 } finally {
   const leaked = await provider.findByMetadata({ smokeRun: runId });
-  for (const sandboxId of leaked) await (await provider.connect(sandboxId))?.kill();
+  for (const sandboxId of leaked) await provider.kill(sandboxId);
   await rm(cacheDir, { force: true, recursive: true });
   const remaining = await provider.findByMetadata({});
   console.log(

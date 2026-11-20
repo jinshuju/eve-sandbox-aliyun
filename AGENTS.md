@@ -6,9 +6,11 @@ agents; user-facing behavior belongs in `README.md`.
 ## What this repository is
 
 One published package, `@jinshuju/eve-sandbox-aliyun`: an eve sandbox provider
-(`defineSandboxProvider`, eve >= 0.75) on Aliyun's cloud sandbox (FC Agent
-Sandbox), which speaks the E2B protocol. 0.2.x implemented the `SandboxBackend`
-interface eve 0.64 removed.
+(`defineSandboxProvider`, eve 1.x) on Aliyun's cloud sandbox (FC Agent
+Sandbox), which speaks the E2B protocol. It implements eve's connection-based
+provider contract (eve >= 0.83): a byte-level `SandboxConnection` that eve
+builds the session on. 0.4.x implemented the handle-based contract of eve
+0.75-0.82; 0.2.x the `SandboxBackend` interface eve 0.64 removed.
 
 ## Start here
 
@@ -20,14 +22,25 @@ notes**. Several non-obvious behaviors are deliberate:
   package managers restore old mtimes on the files they install.
 - `stop()` tries pause, and falls back to checkpoint-then-destroy. Pause is an
   allow-listed account feature; the fallback is what most accounts get.
-- eve persists the session state `start()` returns once and never updates it.
-  So the sandbox id in it is only a first guess: a replacement sandbox is found
-  by the `eveSessionKey` metadata, which is unique per `start()` so an orphan
-  from a crashed start is never adopted. Anything a replacement needs again
-  (`open()`'s env and network policy) must be in that state.
-- `resume()` replaces a sandbox that is gone (checkpoint, else template) where
-  eve's built-in providers fail. On an account without pause the idle timeout
-  is how sandboxes normally end; failing there would break every idle session.
+- eve requires `start()` to be an idempotent upsert per `ctx.session.id`, across
+  processes, and the service has no create-if-absent. A session's sandbox is
+  labelled `eveSessionId`; `start()` adopts a labelled sandbox only once its
+  session file (`STATE_DIR/session.json`, written last at creation) exists, and
+  takes the env from that file, not from its own `open()` options. It never
+  kills another sandbox: two processes racing to create can leave a second
+  one, which session end destroys. Do not "fix" the race by killing the loser —
+  the loser may already be serving a turn.
+- `resume()` never recreates: a sandbox that is gone throws
+  `SandboxSessionGoneError`, eve reruns the selector, and the `start()` that
+  follows restores the session's checkpoint (keyed by session id), else the
+  template. On an account without pause, stop and idle end in checkpoint-then-
+  destroy, so this is the normal path, not an error path.
+- `onSessionIdle()` must never resume a paused sandbox, and connecting does. It
+  asks `Provider.getState()` first and only connects to a running one.
+- State written by 0.4 (`version: 1`, with a per-start `sessionKey`) is still
+  accepted by `resume()` and `onSessionEnd()`, so sessions in flight survive
+  the upgrade: its checkpoint moves to the session-id path when its sandbox is
+  gone, and its `eveSessionKey`-labelled sandboxes are destroyed at session end.
 - Unsupported network policy shapes throw. Never degrade a policy silently —
   widening egress or dropping a header rule is a security bug, not a fallback.
 
@@ -82,11 +95,17 @@ Moving the pin means proving a newer SDK works against the live service first.
 
 ## The eve peer range
 
-`peerDependencies.eve` is `>=0.75.0 <1.0.0`: the floor is the release that
-renamed the handle's hooks to `onSandboxStop`/`onSandboxDelete` (it calls the
-new names only, so an older provider fails at runtime, not at typecheck) and
-added `onSessionEnd`. The ceiling is wide on purpose. Three mechanisms
-keep it honest:
+`peerDependencies.eve` is `>=1.0.0 <2.0.0`. The provider contract it implements
+arrived in eve 0.83, a minor release, and 0.4.x's range (`>=0.75.0 <1.0.0`)
+went on claiming 0.83-0.91 without working on them; the drift check caught it.
+1.0.0 is the floor because the owner chose to support eve 1.x, 1.0.x included.
+1.1 added the optional `onSessionIdle`: an eve 1.0 runtime never calls it, so on
+1.0 nothing stops an idle sandbox (README says so). The source therefore builds
+against eve >= 1.1 (the `eve` devDependency); against 1.0's types the
+`onSessionIdle` member is an excess property. Consumers on 1.0 are unaffected —
+the published `.d.ts` only names eve's implementation type — and the floor test
+plus the CI pack job on 1.0.0 cover them.
+Three mechanisms keep the range honest:
 
 1. `src/eve-compatibility.test.ts` typechecks the provider against the range's
    floor (`eve-floor`) and the newest verified eve. These are **type-level**
@@ -96,7 +115,7 @@ keep it honest:
    `eve/sandbox/provider`, so a version that typechecks could still fail to load.
 3. `.github/workflows/eve-drift.yml` re-runs the suite against `eve@latest` on a
    schedule and opens an issue on failure. It is the only thing covering the
-   `<1.0.0` ceiling.
+   `<2.0.0` ceiling.
 
 Raising the floor means changing `peerDependencies.eve` **and** the `eve-floor`
 devDependency together; a test asserts they name the same minor line.

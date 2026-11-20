@@ -67,16 +67,17 @@ export default defineSandbox(({ session }) =>
 );
 ```
 
-eve runs the selector once per session and never again, so both travel in eve's session state and
-are still there on the next turn, after a pause, and in a replacement sandbox. That also means
-they are stored with the session: `env` is visible to anything running in the sandbox, and a
-`networkPolicy` with header `transform`s is persisted with its headers. For a secret shared by
-every session, put the `transform` on the environment's `networkPolicy`, which lives only in the
-build.
+Both apply when the session's sandbox is created. eve runs the selector when a session first
+touches the sandbox, and again only when its sandbox is gone (lost to the idle timeout, or released
+by a checkpoint on an account without pause); the sandbox created then gets the options that run
+passes. Until then, `env` travels in eve's session state, so it is still there on the next turn and
+after a pause. That also means it is stored with the session and visible to anything running in the
+sandbox. A `networkPolicy` with header `transform`s is applied to the sandbox, not stored; for a
+secret shared by every session, put the `transform` on the environment's `networkPolicy`, which
+lives only in the build.
 
-Anything else the selector does after `open()` — writing a file, running a command — happens once,
-in the sandbox that session started with. Setup every session needs belongs in `prepare`, and
-per-session values in `open()`, so that a [replacement sandbox](#compatibility-notes) has them too.
+Anything else the selector does after `open()` — writing a file, running a command — happens in
+the sandbox being created then. Setup every session needs belongs in `prepare`.
 
 [`examples/basic`](./examples/basic) is a complete agent (DeepSeek model, a seeded data file, a
 `prepare` that installs `jq`, a per-session `env`).
@@ -95,7 +96,8 @@ per-session values in `open()`, so that a [replacement sandbox](#compatibility-n
 | `networkPolicy`      | `"allow-all"`                              | Egress policy every sandbox starts with, `prepare` included, unless the session's `open()` names one.                                                                                                                                                                                                        |
 | `metadata`           | `{}`                                       | Extra metadata labels on every sandbox, e.g. `{ agent: "support" }` for `pnpm sweep --tag agent=support`.                                                                                                                                                                                                    |
 | `allowPublicTraffic` | provider default (open)                    | `false` makes the gateway refuse requests to the sandbox's port URLs (`https://<port>-<id>.<domain>`) that carry no traffic token. Left open, anyone who knows a sandbox id reaches every port that listens in it. Commands and file access are not affected, and `setNetworkPolicy()` leaves it as created. |
-| `prepare`            | —                                          | `(sandbox) => Promise<void>`, run once at build time after the seed files are written. What it leaves on disk becomes the template.                                                                                                                                                                          |
+| `prepare`            | —                                          | eve's standard option: `(sandbox) => Promise<void>`, run once at build time after eve seeds the files. What it leaves on disk becomes the template.                                                                                                                                                          |
+| `idleTimeoutMs`      | `300000` (5 min)                           | eve's standard option (eve >= 1.1): how long a session stays idle before eve stops its sandbox (pause, else checkpoint and destroy). `false` leaves it to `timeoutMs`. eve 1.0 has no idle stop; see [eve version requirement](#eve-version-requirement).                                                    |
 | `cacheDir`           | `<appRoot>/.eve/sandbox-cache/aliyun`      | Where template archives and session checkpoints are kept. Pin it outside the release directory so a redeploy does not discard them.                                                                                                                                                                          |
 
 ## How it works
@@ -107,31 +109,36 @@ build time, durable sessions opened from it — is rebuilt on what the platform 
 - **Base runtime.** A fresh sandbox has no `/workspace`, and the default user cannot create one.
   Before anything else, a root step creates a user-owned `/workspace` and drops a marker file.
 - **prepare** (`eve build`, or the first sandbox access in `eve dev`) starts a throwaway
-  sandbox, writes the seed files, runs your `prepare`, then archives **every filesystem entry
-  whose inode changed since the marker** and downloads it to `cacheDir/templates/`. The sandbox
-  is destroyed either way. eve records only the archive's name in the build; an archive already
-  built for the same source, seeds, base template and `env` is reused. Comparing `ctime` rather
-  than `mtime` is deliberate: package managers restore old mtimes on the files they install, so
-  an mtime comparison would miss exactly the `apt-get install` a `prepare` is for. With nothing
-  to seed and no `prepare`, no template is built at all.
-- **start** (once per session) creates the session's sandbox with its egress policy already in
-  force and restores the template into it. eve persists the state it returns — the sandbox id, a
-  session key unique to this start, and the `open()` options — and never updates it.
-- **resume** (every later access, in any process) reattaches when it can — first by the recorded
-  sandbox id, then by the session key stored in the sandbox's metadata — and otherwise starts a
-  fresh sandbox and restores an archive into it. A session checkpoint wins over the template,
-  since it already contains the template it grew from.
-- **run / spawn** go through the sandbox's login shell as the unprivileged user, in
-  `/workspace`. `kill()` ends the process and its children.
-- **stop / runtime shutdown** kill the session's processes, then release the compute. Where the
-  account has pause, the sandbox is paused and resumes intact on the next `resume`. Where it does
-  not, the session's filesystem delta is checkpointed to `cacheDir/sessions/` and the sandbox is
-  destroyed; the next `resume` restores it into a new sandbox. `sandbox.stop()` rejects on
-  failure; shutdown never throws.
-- **delete** destroys the sandbox and its checkpoint. Templates are shared and survive.
-- **session end** (eve's `onSessionEnd`, once a durable session completes, expires or fails)
-  destroys every sandbox carrying the session key and the session's checkpoint. It kills by id, so
-  it never resumes a paused sandbox or creates a replacement just to delete it.
+  sandbox, hands it to eve to write the seed files and run your `prepare`, then archives **every
+  filesystem entry whose inode changed since the marker** and downloads it to
+  `cacheDir/templates/`. The sandbox is destroyed either way. eve records only the archive's name
+  in the build; an archive already built for the same eve template key (source, seeds,
+  `prepare`), base template and `env` is reused. Comparing `ctime` rather than `mtime` is
+  deliberate: package managers restore old mtimes on the files they install, so an mtime
+  comparison would miss exactly the `apt-get install` a `prepare` is for. With nothing to seed and
+  no `prepare`, no template is built at all.
+- **start** returns the session's sandbox, creating it only when none exists: a prewarm and the
+  first turn may both ask, from different processes. A sandbox is labelled with its eve session
+  id; one that finished its creation is adopted as it is, with the `env` it was created with. A
+  new one starts with its egress policy already in force and gets the session's checkpoint, else
+  the template, restored into it. Two processes that both find nothing create two sandboxes; eve
+  records one, and session end destroys both.
+- **resume** (later accesses, in any process) reconnects to the recorded sandbox, resuming it if
+  paused. It never recreates one: when the sandbox is gone it says so, eve runs the selector
+  again, and **start** restores the session's checkpoint into a new sandbox.
+- **run / spawn** go through the sandbox's login shell as the unprivileged user. eve builds
+  `run`, the file helpers and path resolution on the provider's `spawn`, `readFile`,
+  `writeFiles` and `removePath`. `kill()` ends the process and its children.
+- **stop / runtime shutdown / idle** release the compute. Where the account has pause, the
+  sandbox is paused and resumes intact on the next access. Where it does not, the session's
+  filesystem delta is checkpointed to `cacheDir/sessions/` and the sandbox is destroyed; the next
+  access restores it into a new sandbox. `sandbox.stop()` kills the session's processes first and
+  rejects on failure. Idle (eve's `onSessionIdle`, after `idleTimeoutMs`) only touches a running
+  sandbox, so it never resumes a paused one.
+- **delete / session end** (eve's `onSessionEnd`: `sandbox.delete()`, or a durable session that
+  completes, expires or fails) destroys every sandbox labelled with the session, and its
+  checkpoint. It kills by id, so it never resumes a paused sandbox, and it works when eve has no
+  state for the session. Templates are shared and survive.
 
 ## Network policy
 
@@ -186,12 +193,16 @@ for — on the environment, when the sandbox module loads:
   only survive `stop()` on accounts with pause.
 - **Templates live in `cacheDir`.** If you build on one machine and run on another, ship the
   directory with the build or point both at shared storage.
-- **A sandbox lost to the idle timeout** is replaced from the latest checkpoint, or the template,
-  with the session's `open()` options applied again. eve's built-in providers fail the session
-  instead; this one keeps it working, because on an account without pause the idle timeout is
-  the normal way a sandbox ends. What the selector did after `open()`, and files written since
-  the last checkpoint, are not replayed — keep setup in `prepare` and per-session values in
-  `open()`. A policy changed mid-session with `setNetworkPolicy()` reverts to the session's.
+- **A sandbox lost to the idle timeout** is reported gone, and the `start()` eve runs next
+  restores the latest checkpoint, or the template, with the options the selector passes then.
+  eve's own providers start such a session fresh; this one restores, because on an account
+  without pause a checkpoint is how a stopped sandbox keeps its files. Files written since the
+  last checkpoint are lost, and a policy changed mid-session with `setNetworkPolicy()` reverts to
+  the session's.
+- **Checkpoints live in `cacheDir`**, like templates, and are coordinated only within one process.
+  If sessions move between machines, put `cacheDir` on shared storage.
+- **`spawn` has no stdin.** The SDK delivers output only, so `spawn({ stdin: true })` throws, as
+  eve's contract allows.
 
 ## Cost
 
@@ -218,18 +229,36 @@ a `--tag` names them.
 
 ## eve version requirement
 
-`eve` `>=0.75.0 <1.0.0`. eve 0.75 renamed the handle's `onSessionStop`/`onSessionDelete` hooks to
-`onSandboxStop`/`onSandboxDelete` and calls only the new names, so 0.3.x of this package (eve
-`>=0.64 <0.75`) leaks a sandbox every time eve stops or deletes one on 0.75. eve 0.64 replaced the
-`SandboxBackend` interface with sandbox providers; 0.2.x of this package is the one for eve `<0.64`. The ceiling is wide on purpose — the consumed
-surface is one small interface — and `src/eve-compatibility.test.ts` typechecks the provider
-against both the range's floor and the newest verified release, so `pnpm typecheck` is part of the
-contract.
+`eve` `>=1.0.0 <2.0.0`. eve 0.83 replaced the handle-based provider contract with connections:
+a provider supplies a byte-level connection and eve builds the session on it. 0.4.x of this
+package implements the old contract and works with eve `>=0.75 <0.83` only, although its declared
+range reached `<1.0.0`. This version supports eve 1.x and nothing older. The ceiling is wide on
+purpose — the consumed surface is one small interface — and `src/eve-compatibility.test.ts`
+typechecks the provider against both the range's floor and the newest verified release, so
+`pnpm typecheck` is part of the contract.
+
+**eve 1.0.x works, without idle stop.** eve 1.1 added `onSessionIdle` and `idleTimeoutMs`; eve 1.0
+never stops an idle sandbox. On 1.0 a sandbox stops only on `sandbox.stop()` or server shutdown,
+and otherwise runs until `timeoutMs`, when Aliyun destroys it. On an account without pause that
+loses the files written since the session's last checkpoint, and the sandbox bills until then. Use
+eve 1.1 or later, or call `ctx.getSandbox().stop()` when a turn's work is done.
 
 The session `prepare(sandbox)` and authored code receive is `AliyunSandboxSession`: eve's
-`SandboxSession` plus `setNetworkPolicy`, since this provider's firewall is mutable. eve 0.64 and
-0.65 exported that shape as `MutableNetworkSandboxSession`; 0.66 removed it and has each provider
-declare its own, so import the type from this package rather than from `eve/sandbox`.
+`SandboxSession` plus `setNetworkPolicy`, since this provider's firewall is mutable. Import the
+type from this package rather than from `eve/sandbox`.
+
+### Migrating from 0.4
+
+| 0.4 (eve `>=0.75 <0.83`)                              | this release (eve 1.x)                                                     |
+| ----------------------------------------------------- | -------------------------------------------------------------------------- |
+| `prepare` in this package's options                   | the same option, now eve's standard one; nothing to change                 |
+| sandboxes stopped by eve's `onSandboxStop`            | `idleTimeoutMs` (eve's option, default 5 min) via `onSessionIdle`          |
+| `createAliyunSandboxImplementation` returns `handle`s | it returns eve 1.x's `{ connection, state }`; wrappers need rewriting      |
+| `Provider` (for wrappers of `createE2bProvider`)      | adds `getState(id)`: running, paused or gone, without resuming; forward it |
+| `AliyunSandboxSession` interface                      | `SandboxSession & AliyunSandboxExtensions`                                 |
+
+Sessions in flight carry over: `resume()` and session end still accept the state 0.4 wrote, and a
+0.4 checkpoint is restored by the session's next start.
 
 ### Migrating from 0.2
 
